@@ -427,6 +427,8 @@ export type ProductLink = { id: string; href: string; label: string };
 export type TranscriptRow = { key: string; speaker: Speaker; label: string; time: string; dateTime: string; text: string; products: ProductLink[] };
 
 export const SPEAKER_LABELS: Record<Speaker, string> = { shopper: "You", assistant: "Assistant" };
+/** The owner reads other people's calls, so the shopper isn't "You" there. */
+export const OWNER_SPEAKER_LABELS: Record<Speaker, string> = { shopper: "Shopper", assistant: "Assistant" };
 
 /** "3:45:12 PM", in the shopper's own clock unless a locale and time zone are given. */
 export const formatLineTime = (at: Date, locale?: string, timeZone?: string) =>
@@ -440,8 +442,9 @@ export const formatLineTime = (at: Date, locale?: string, timeZone?: string) =>
  */
 export function transcriptRows(
   lines: readonly StoredLine[],
-  opts: { names?: Record<string, string>; locale?: string; timeZone?: string } = {},
+  opts: { names?: Record<string, string>; labels?: Record<Speaker, string>; locale?: string; timeZone?: string } = {},
 ): TranscriptRow[] {
+  const labels = opts.labels ?? SPEAKER_LABELS;
   const timed = lines.map((line, i) => {
     const at = new Date(line.at);
     return { line, i, ms: Number.isNaN(at.getTime()) ? Infinity : at.getTime(), at };
@@ -452,7 +455,7 @@ export function transcriptRows(
     return {
       key: `${i}-${known ? ms : "x"}`,
       speaker: line.speaker,
-      label: SPEAKER_LABELS[line.speaker] ?? line.speaker,
+      label: labels[line.speaker] ?? line.speaker,
       time: known ? formatLineTime(at, opts.locale, opts.timeZone) : "",
       dateTime: known ? at.toISOString() : "",
       text: line.text,
@@ -463,4 +466,25 @@ export function transcriptRows(
       })),
     };
   });
+}
+
+// --- Owner view ---------------------------------------------------------------
+
+/** How long the owner's sign-in cookie lasts. */
+export const OWNER_SESSION_MS = 4 * HOUR;
+/** Transcripts are kept (and listed) for 30 days. */
+export const TRANSCRIPT_KEEP_MS = 30 * 24 * HOUR;
+export const OWNER_PAGE_SIZE = 20;
+const MAX_OWNER_PAGE = 1000;
+
+/** The oldest transcript the owner list covers: exactly 30 days before `now`. */
+export const transcriptsSince = (now: Date) => new Date(now.getTime() - TRANSCRIPT_KEEP_MS);
+
+/** Whether a transcript created at `createdAt` is still inside the 30-day window (the TTL index can lag). */
+export const withinKeep = (createdAt: Date, now: Date) => createdAt.getTime() >= transcriptsSince(now).getTime();
+
+/** A page number from the query string: a whole number from 1 to 1000, otherwise 1. */
+export function pageNumber(raw: string | null | undefined): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_OWNER_PAGE) : 1;
 }

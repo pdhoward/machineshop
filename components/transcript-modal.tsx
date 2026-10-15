@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 
-import { transcriptRows, type StoredLine } from "@/lib/voice";
+import { transcriptRows, type Speaker, type StoredLine } from "@/lib/voice";
 
 /**
  * The transcript window: who spoke, when, and links to the products shown.
@@ -21,6 +21,7 @@ export function TranscriptModal({
   onClose,
   lines,
   names,
+  labels,
   title = "Call transcript",
   live = false,
 }: {
@@ -29,6 +30,8 @@ export function TranscriptModal({
   lines: readonly StoredLine[];
   /** Product names the caller already knows, by id, for the links. */
   names?: Record<string, string>;
+  /** Speaker labels; the shopper is "You" unless the owner view says otherwise. */
+  labels?: Record<Speaker, string>;
   title?: string;
   /** The call is still going, so new lines arrive while the window is open. */
   live?: boolean;
@@ -38,7 +41,7 @@ export function TranscriptModal({
   const openerRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const descId = useId();
-  const rows = transcriptRows(lines, { names });
+  const rows = transcriptRows(lines, { names, labels });
 
   // Open as a modal, and on close hand focus back to the opener.
   useEffect(() => {

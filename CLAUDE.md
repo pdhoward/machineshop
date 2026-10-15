@@ -9,6 +9,7 @@ A small demonstration store: ~10,000 home and workshop products from MongoDB, br
 - `app/page.tsx` — storefront: departments, search, paging. `app/p/[id]` — product page.
 - `app/api/assistant` — the shop assistant (Claude with tools over `lib/catalog.ts`).
 - `app/api/voice/session` — Talk mode's call session: status, start (code gate, lockout, cooldown, one-call OpenAI pass, signed token) and end. Route tested with the store and `fetch` mocked.
+- `app/api/voice/owner` + `app/owner/transcripts` — the owner's private list of saved calls (last 30 days, 20 per page) behind `VOICE_OWNER_CODE` and a signed httpOnly cookie; noindex. Wrong codes share Talk's lockout (`lib/voice-caller.ts`). Route tested with the store mocked.
 - `components/` — UI. Colors are CSS tokens in `app/globals.css` (light + dark); use them, don't hardcode colors.
 
 ## Rules

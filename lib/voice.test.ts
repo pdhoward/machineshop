@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 
 import {
   applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
-  formatClock, isLockedOut, LOCKOUT_MS, MAX_LINE_CHARS, MAX_LINES, MIC_MESSAGES, micProblem, missingVoiceSettings, parseRealtimeEvent, readTalkStatus,
+  formatClock, isLockedOut, LOCKOUT_MS, OWNER_PAGE_SIZE, OWNER_SESSION_MS, OWNER_SPEAKER_LABELS, pageNumber, TRANSCRIPT_KEEP_MS, transcriptsSince, withinKeep, MAX_LINE_CHARS, MAX_LINES, MIC_MESSAGES, micProblem, missingVoiceSettings, parseRealtimeEvent, readTalkStatus,
   recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, transcriptRows,
   typedTextEvents, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
   type Attempts, type CallLog, type CaptionAction, type StoredLine, type TalkStatus,
@@ -550,6 +550,11 @@ describe("transcriptRows", () => {
     expect(out.map((r) => [r.speaker, r.label])).toEqual([["shopper", "You"], ["assistant", "Assistant"]]);
   });
 
+  it("labels the shopper 'Shopper' in the owner view", () => {
+    const out = rows([{ speaker: "shopper", text: "a", at: at(0) }], { labels: OWNER_SPEAKER_LABELS });
+    expect(out[0]!.label).toBe("Shopper");
+  });
+
   it("links each product mentioned to its page, named when the panel knows the name", () => {
     const [row] = rows([{ speaker: "assistant", text: "Try these.", at: at(0), productIds: [DRILL, SAW] }], { names: { [DRILL]: "Cordless Drill 20V" } });
     expect(row!.products).toEqual([
@@ -576,5 +581,26 @@ describe("transcriptRows", () => {
 
   it("returns no rows for an empty transcript", () => {
     expect(transcriptRows([])).toEqual([]);
+  });
+});
+
+describe("owner view", () => {
+  it("signs the owner in for 4 hours and lists 20 calls a page", () => {
+    expect(OWNER_SESSION_MS).toBe(4 * HOUR);
+    expect(OWNER_PAGE_SIZE).toBe(20);
+  });
+
+  it("covers exactly the last 30 days", () => {
+    expect(TRANSCRIPT_KEEP_MS).toBe(30 * 24 * HOUR);
+    expect(transcriptsSince(T0)).toEqual(new Date("2026-09-15T12:00:00.000Z"));
+    expect(withinKeep(transcriptsSince(T0), T0)).toBe(true);
+    expect(withinKeep(at(-TRANSCRIPT_KEEP_MS - 1), T0)).toBe(false);
+    expect(withinKeep(at(-MIN), T0)).toBe(true);
+  });
+
+  it("reads a page number, falling back to 1 and capping at 1000", () => {
+    expect(pageNumber("3")).toBe(3);
+    for (const raw of [null, undefined, "", "0", "-1", "1.5", "abc", "Infinity"]) expect(pageNumber(raw)).toBe(1);
+    expect(pageNumber("99999")).toBe(1000);
   });
 });

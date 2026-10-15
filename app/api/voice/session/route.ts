@@ -1,8 +1,7 @@
-import { randomUUID } from "node:crypto";
-
 import { catalogConfigured } from "@/lib/catalog";
-import { buildSessionConfig, canTalk, codeMatches, isLockedOut, talkAvailableAt, voiceConfigured } from "@/lib/voice";
-import { voiceStore, type Caller, type VoiceStore } from "@/lib/voice-store";
+import { buildSessionConfig, canTalk, codeMatches, talkAvailableAt, voiceConfigured } from "@/lib/voice";
+import { caller, clearMisses, countMiss, device, deviceCookie, lockedUntil, type Device } from "@/lib/voice-caller";
+import { voiceStore } from "@/lib/voice-store";
 import { bearerToken, signSessionToken, verifySessionToken } from "@/lib/voice-token";
 
 /**
@@ -16,9 +15,6 @@ import { bearerToken, signSessionToken, verifySessionToken } from "@/lib/voice-t
  * The device ID lives in an httpOnly cookie set here.
  */
 
-const DEVICE_COOKIE = "voice_device";
-const DEVICE_MAX_AGE = 365 * 24 * 60 * 60;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_CODE_CHARS = 200;
 
 const OPENAI_CLIENT_SECRETS = "https://api.openai.com/v1/realtime/client_secrets";
@@ -30,45 +26,9 @@ const SNAG = "Talk hit a snag. Try again in a moment, or type your question.";
 const ready = () => voiceConfigured() && catalogConfigured();
 const notReady = () => Response.json({ error: "Talk isn't set up yet.", available: false }, { status: 503 });
 
-type Device = { id: string; fresh: boolean };
-
-/** The device ID from the cookie, or a new one if it is missing or malformed. */
-function device(request: Request): Device {
-  const value = (request.headers.get("cookie") ?? "")
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`${DEVICE_COOKIE}=`))
-    ?.slice(DEVICE_COOKIE.length + 1);
-  return value && UUID.test(value) ? { id: value, fresh: false } : { id: randomUUID(), fresh: true };
-}
-
-const clientIp = (request: Request) => request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-
-const caller = (request: Request, dev: Device): Caller => ({ deviceId: dev.id, ip: clientIp(request) });
-
-/** Wrong codes count against both the device and the network, so clearing cookies doesn't reset them. */
-const callerIds = (c: Caller) => [`device:${c.deviceId}`, `network:${c.ip}`];
-
-const latest = (dates: (Date | null)[]) => {
-  const times = dates.filter((d): d is Date => !!d).map((d) => d.getTime());
-  return times.length ? new Date(Math.max(...times)) : null;
-};
-
 /** JSON reply that (re)sets the device cookie and is never cached. */
 function reply(body: unknown, status: number, dev: Device) {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return Response.json(body, {
-    status,
-    headers: {
-      "Cache-Control": "no-store",
-      "Set-Cookie": `${DEVICE_COOKIE}=${dev.id}; Path=/api/voice; Max-Age=${DEVICE_MAX_AGE}; HttpOnly; SameSite=Lax${secure}`,
-    },
-  });
-}
-
-async function lockedUntil(store: VoiceStore, c: Caller, now: Date) {
-  const records = await Promise.all(callerIds(c).map((id) => store.attempts(id)));
-  return latest(records.map((r) => (isLockedOut(r, now) ? r!.lockedUntil : null)));
+  return Response.json(body, { status, headers: { "Cache-Control": "no-store", "Set-Cookie": deviceCookie(dev) } });
 }
 
 const locked = (until: Date, dev: Device) =>
@@ -135,12 +95,11 @@ export async function POST(request: Request) {
     if (!canTalk(last, now)) return coolingDown(talkAvailableAt(last!), dev);
 
     if (!codeMatches(code, process.env.VOICE_ACCESS_CODE)) {
-      const after = await Promise.all(callerIds(c).map((id) => store.addMiss(id, now)));
-      const nowLocked = latest(after.map((a) => a.lockedUntil));
+      const nowLocked = await countMiss(store, c, now);
       if (nowLocked) return locked(nowLocked, dev);
       return reply({ error: "That code isn't right.", reason: "wrong_code" }, 403, dev);
     }
-    await Promise.all(callerIds(c).map((id) => store.clearMisses(id)));
+    await clearMisses(store, c);
 
     // Get the pass before recording the call, so an OpenAI failure doesn't start a cooldown.
     const pass = await requestPass(now);
