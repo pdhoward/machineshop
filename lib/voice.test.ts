@@ -8,10 +8,14 @@ const catalog = vi.hoisted(() => ({
 }));
 vi.mock("./catalog", () => catalog);
 
+import { readFileSync } from "node:fs";
+
 import {
-  buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, isLockedOut, LOCKOUT_MS, MAX_LINE_CHARS, MAX_LINES,
-  missingVoiceSettings, recordMiss, talkAvailableAt, timerPhase, TRANSCRIPT_GRACE_MS, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured,
-  type Attempts,
+  applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
+  formatClock, isLockedOut, LOCKOUT_MS, MAX_LINE_CHARS, MAX_LINES, MIC_MESSAGES, micProblem, missingVoiceSettings, parseRealtimeEvent, readTalkStatus,
+  recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, typedTextEvents,
+  VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
+  type Attempts, type CallLog, type CaptionAction, type TalkStatus,
 } from "./voice";
 
 const T0 = new Date("2026-10-15T12:00:00.000Z");
@@ -240,5 +244,261 @@ describe("buildSessionConfig", () => {
     expect(catalog.search).not.toHaveBeenCalled();
     expect(catalog.product).not.toHaveBeenCalled();
     expect(catalog.cardsByIds).not.toHaveBeenCalled();
+  });
+});
+
+describe("browser safety", () => {
+  it("imports nothing server-only, so the Talk panel can use it", () => {
+    for (const file of ["voice.ts", "assistant-skills.ts"]) {
+      const src = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+      const imports = [...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+      expect(imports.every((i) => i === "./assistant-skills")).toBe(true);
+      expect(src).not.toContain("server-only");
+    }
+  });
+});
+
+describe("parseRealtimeEvent", () => {
+  it("reads shopper captions: placeholder, growing words, final words", () => {
+    expect(parseRealtimeEvent({ type: "input_audio_buffer.committed", item_id: "u1" })).toEqual({ kind: "caption", id: "u1", speaker: "shopper", text: "", mode: "start" });
+    expect(parseRealtimeEvent({ type: "conversation.item.input_audio_transcription.delta", item_id: "u1", delta: "a dri" }))
+      .toEqual({ kind: "caption", id: "u1", speaker: "shopper", text: "a dri", mode: "append" });
+    expect(parseRealtimeEvent({ type: "conversation.item.input_audio_transcription.completed", item_id: "u1", transcript: "a drill" }))
+      .toEqual({ kind: "caption", id: "u1", speaker: "shopper", text: "a drill", mode: "final" });
+  });
+
+  it("reads the assistant's spoken words as captions", () => {
+    expect(parseRealtimeEvent({ type: "response.output_audio_transcript.delta", item_id: "a1", delta: "Here " }))
+      .toEqual({ kind: "caption", id: "a1", speaker: "assistant", text: "Here ", mode: "append" });
+    expect(parseRealtimeEvent({ type: "response.output_audio_transcript.done", item_id: "a1", transcript: "Here are two." }))
+      .toEqual({ kind: "caption", id: "a1", speaker: "assistant", text: "Here are two.", mode: "final" });
+  });
+
+  it("accepts the data channel's raw JSON text", () => {
+    expect(parseRealtimeEvent(JSON.stringify({ type: "response.created" }))).toEqual({ kind: "response_started" });
+  });
+
+  it("collects the skills a finished reply asked for, skipping incomplete or malformed calls", () => {
+    const e = {
+      type: "response.done",
+      response: {
+        output: [
+          { type: "message", id: "m1" },
+          { type: "function_call", call_id: "c1", name: "search_products", arguments: '{"query":"drill"}', status: "completed" },
+          { type: "function_call", call_id: "c2", name: "show_products", arguments: '{"ids":', status: "incomplete" },
+          { type: "function_call", name: "get_product", arguments: "{}" },
+          null,
+        ],
+      },
+    };
+    expect(parseRealtimeEvent(e)).toEqual({ kind: "response_done", calls: [{ callId: "c1", name: "search_products", arguments: '{"query":"drill"}' }] });
+    expect(parseRealtimeEvent({ type: "response.done", response: {} })).toEqual({ kind: "response_done", calls: [] });
+  });
+
+  it("reads errors", () => {
+    expect(parseRealtimeEvent({ type: "error", error: { message: "Bad thing" } })).toEqual({ kind: "error", message: "Bad thing" });
+    expect(parseRealtimeEvent({ type: "error" })).toEqual({ kind: "error", message: "Unknown error" });
+  });
+
+  it("ignores other events, captions without an item, and unreadable input", () => {
+    expect(parseRealtimeEvent({ type: "session.updated" })).toBeNull();
+    expect(parseRealtimeEvent({ type: "response.output_audio_transcript.delta", delta: "x" })).toBeNull();
+    expect(parseRealtimeEvent("{not json")).toBeNull();
+    expect(parseRealtimeEvent(null)).toBeNull();
+    expect(parseRealtimeEvent(42)).toBeNull();
+  });
+});
+
+describe("applyCaption", () => {
+  const cap = (id: string, speaker: "shopper" | "assistant", text: string, mode: CaptionAction["mode"]): CaptionAction => ({ kind: "caption", id, speaker, text, mode });
+  const run = (actions: CaptionAction[], start: CallLog = emptyCallLog()) => {
+    let log = start;
+    const lines = [];
+    for (const [i, a] of actions.entries()) {
+      const r = applyCaption(log, a, 1000 + i);
+      log = r.log;
+      if (r.line) lines.push(r.line);
+    }
+    return { log, lines };
+  };
+
+  it("grows a caption from its deltas, then saves one line when it is final", () => {
+    const { log, lines } = run([cap("a1", "assistant", "Here ", "append"), cap("a1", "assistant", "are", "append")]);
+    expect(log.captions).toEqual([{ id: "a1", speaker: "assistant", text: "Here are", at: 1000, final: false }]);
+    expect(lines).toEqual([]);
+    const done = applyCaption(log, cap("a1", "assistant", " Here are two. ", "final"), 5000);
+    expect(done.log.captions[0]).toEqual({ id: "a1", speaker: "assistant", text: "Here are two.", at: 1000, final: true });
+    expect(done.line).toEqual({ speaker: "assistant", text: "Here are two.", at: 1000, productIds: [] });
+  });
+
+  it("keeps the shopper's place from the placeholder, before the assistant's reply", () => {
+    const { log, lines } = run([
+      cap("u1", "shopper", "", "start"),
+      cap("a1", "assistant", "Sure.", "final"),
+      cap("u1", "shopper", "Find me a drill", "final"),
+    ]);
+    expect(log.captions.map((c) => [c.id, c.at])).toEqual([["u1", 1000], ["a1", 1001]]);
+    expect(lines.map((l) => [l.speaker, l.at])).toEqual([["assistant", 1001], ["shopper", 1000]]);
+  });
+
+  it("never saves a line twice or an empty line", () => {
+    const { lines } = run([cap("u1", "shopper", "Hi", "final"), cap("u1", "shopper", "Hi again", "final"), cap("u1", "shopper", "x", "append"), cap("u2", "shopper", "  ", "final")]);
+    expect(lines).toEqual([{ speaker: "shopper", text: "Hi", at: 1000, productIds: [] }]);
+  });
+
+  it("gives shown products to the assistant's next line only, at most 6", () => {
+    const ids = Array.from({ length: 8 }, (_, i) => String(i).repeat(24));
+    const shown = withShownProducts(emptyCallLog(), ids);
+    expect(shown.pendingProductIds).toHaveLength(6);
+    const { log, lines } = run([cap("u1", "shopper", "Nice", "final"), cap("a1", "assistant", "These two.", "final"), cap("a2", "assistant", "Anything else?", "final")], shown);
+    expect(lines.map((l) => l.productIds)).toEqual([[], ids.slice(0, 6), []]);
+    expect(log.pendingProductIds).toEqual([]);
+  });
+});
+
+describe("events sent to the model", () => {
+  it("hands every skill answer back, then asks for one reply", () => {
+    expect(toolOutputEvents([{ callId: "c1", output: "A" }, { callId: "c2", output: "B" }])).toEqual([
+      { type: "conversation.item.create", item: { type: "function_call_output", call_id: "c1", output: "A" } },
+      { type: "conversation.item.create", item: { type: "function_call_output", call_id: "c2", output: "B" } },
+      { type: "response.create" },
+    ]);
+  });
+
+  it("puts typed text in as the shopper's turn, asking for a reply only when the model is free", () => {
+    const item = { type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: "cheaper?" }] } };
+    expect(typedTextEvents("cheaper?", false)).toEqual([item, { type: "response.create" }]);
+    expect(typedTextEvents("cheaper?", true)).toEqual([item]);
+  });
+
+  it("asks the model to say time is nearly up", () => {
+    const [note, reply] = timeWarningEvents(false);
+    expect(note).toEqual({ type: "conversation.item.create", item: { type: "message", role: "system", content: [{ type: "input_text", text: TIME_WARNING }] } });
+    expect(TIME_WARNING).toContain("30 seconds");
+    expect(reply).toEqual({ type: "response.create" });
+    expect(timeWarningEvents(true)).toEqual([note]);
+  });
+});
+
+describe("timer display", () => {
+  it("shows m:ss, rounding up to whole seconds", () => {
+    expect(formatClock(5 * MIN)).toBe("5:00");
+    expect(formatClock(31_000)).toBe("0:31");
+    expect(formatClock(30_000)).toBe("0:30");
+    expect(formatClock(29_001)).toBe("0:30");
+    expect(formatClock(0)).toBe("0:00");
+    expect(formatClock(-2000)).toBe("0:00");
+  });
+
+  it("announces the countdown at 30, 20, 10 and 5 seconds and time's up at 0:00, and nothing in between", () => {
+    expect(countdownAnnouncement(5 * MIN)).toBeNull();
+    expect(countdownAnnouncement(31_000)).toBeNull();
+    expect(countdownAnnouncement(30_000)).toBe("30 seconds left in the call.");
+    expect(countdownAnnouncement(29_500)).toBe("30 seconds left in the call.");
+    expect(countdownAnnouncement(25_000)).toBeNull();
+    expect(countdownAnnouncement(20_000)).toBe("20 seconds left in the call.");
+    expect(countdownAnnouncement(10_000)).toBe("10 seconds left in the call.");
+    expect(countdownAnnouncement(5_000)).toBe("5 seconds left in the call.");
+    expect(countdownAnnouncement(3_000)).toBeNull();
+    expect(countdownAnnouncement(0)).toBe(TIME_UP);
+    expect(TIME_UP).toBe("Demo time's up.");
+  });
+});
+
+describe("microphone", () => {
+  it("calls a refused permission blocked, and anything else unsupported", () => {
+    expect(micProblem({ name: "NotAllowedError" })).toBe("blocked");
+    expect(micProblem({ name: "SecurityError" })).toBe("blocked");
+    expect(micProblem({ name: "NotFoundError" })).toBe("unsupported");
+    expect(micProblem(new TypeError("no mediaDevices"))).toBe("unsupported");
+    expect(micProblem(undefined)).toBe("unsupported");
+  });
+
+  it("has a plain message for each problem that points to typing", () => {
+    expect(MIC_MESSAGES.blocked).toMatch(/blocked/);
+    expect(MIC_MESSAGES.unsupported).toMatch(/microphone/);
+    for (const m of Object.values(MIC_MESSAGES)) expect(m).toMatch(/[Tt]ype your question/);
+  });
+
+  it("needs both microphone access and WebRTC to talk", () => {
+    const getUserMedia = () => {};
+    class RTCPeerConnection {}
+    expect(browserCanTalk({ navigator: { mediaDevices: { getUserMedia } }, RTCPeerConnection })).toBe(true);
+    expect(browserCanTalk({ navigator: { mediaDevices: { getUserMedia } } })).toBe(false);
+    expect(browserCanTalk({ navigator: {}, RTCPeerConnection })).toBe(false);
+    expect(browserCanTalk({})).toBe(false);
+  });
+});
+
+describe("readTalkStatus", () => {
+  it("reads available, cooldown and lockout replies", () => {
+    expect(readTalkStatus({ available: true })).toEqual({ available: true });
+    const iso = at(3 * HOUR).toISOString();
+    expect(readTalkStatus({ available: false, reason: "cooldown", availableAt: iso })).toEqual({ available: false, reason: "cooldown", availableAt: iso });
+    expect(readTalkStatus({ error: "Too many", reason: "locked", availableAt: iso })).toEqual({ available: false, reason: "locked", availableAt: iso });
+  });
+
+  it("treats errors, missing times and junk as unavailable", () => {
+    const unavailable = { available: false, reason: "unavailable" };
+    expect(readTalkStatus({ error: "Talk isn't set up yet.", available: false })).toEqual(unavailable);
+    expect(readTalkStatus({ available: false, reason: "cooldown", availableAt: "soon" })).toEqual(unavailable);
+    expect(readTalkStatus(null)).toEqual(unavailable);
+    expect(readTalkStatus("ok")).toEqual(unavailable);
+  });
+});
+
+describe("voicePanelView", () => {
+  const now = T0.getTime();
+  const ready: TalkStatus = { available: true };
+  const cooldown: TalkStatus = { available: false, reason: "cooldown", availableAt: at(3 * HOUR).toISOString() };
+  const locked: TalkStatus = { available: false, reason: "locked", availableAt: at(HOUR).toISOString() };
+  const view = (o: Partial<Parameters<typeof voicePanelView>[0]>) =>
+    voicePanelView({ status: ready, stage: "idle", remainingMs: 0, mic: null, now, ...o });
+
+  it("shows checking, ready or unavailable from the status", () => {
+    expect(view({ status: null })).toEqual({ kind: "checking" });
+    expect(view({})).toEqual({ kind: "ready" });
+    expect(view({ status: { available: false, reason: "unavailable" } })).toEqual({ kind: "unavailable" });
+  });
+
+  it("shows when Talk is available again during a cooldown or lockout", () => {
+    expect(view({ status: cooldown })).toEqual({ kind: "waiting", reason: "cooldown", availableAt: at(3 * HOUR) });
+    expect(view({ status: locked })).toEqual({ kind: "waiting", reason: "locked", availableAt: at(HOUR) });
+  });
+
+  it("shows Talk as ready once the wait has run out", () => {
+    expect(view({ status: cooldown, now: at(3 * HOUR).getTime() })).toEqual({ kind: "ready" });
+  });
+
+  it("shows the code prompt and connecting stages", () => {
+    expect(view({ stage: "prompt" })).toEqual({ kind: "prompt" });
+    expect(view({ stage: "connecting" })).toEqual({ kind: "connecting" });
+  });
+
+  it("shows the live timer, switching to the countdown in the final 30 seconds", () => {
+    expect(view({ stage: "live", remainingMs: 5 * MIN })).toEqual({ kind: "live", phase: "normal", clock: "5:00" });
+    expect(view({ stage: "live", remainingMs: 31_000 })).toEqual({ kind: "live", phase: "normal", clock: "0:31" });
+    expect(view({ stage: "live", remainingMs: 30_000 })).toEqual({ kind: "live", phase: "final", clock: "0:30" });
+  });
+
+  it("shows time's up at 0:00, with the cooldown time once the server reports it", () => {
+    expect(view({ stage: "live", remainingMs: 0 })).toEqual({ kind: "over", availableAt: null });
+    expect(view({ stage: "over" })).toEqual({ kind: "over", availableAt: null });
+    expect(view({ stage: "over", status: cooldown })).toEqual({ kind: "over", availableAt: at(3 * HOUR) });
+  });
+
+  it("shows a microphone problem ahead of the prompt and status, but never over a live call", () => {
+    expect(view({ mic: "blocked" })).toEqual({ kind: "mic", problem: "blocked" });
+    expect(view({ mic: "unsupported", stage: "prompt" })).toEqual({ kind: "mic", problem: "unsupported" });
+    expect(view({ mic: "blocked", status: cooldown })).toEqual({ kind: "mic", problem: "blocked" });
+    expect(view({ mic: "blocked", stage: "live", remainingMs: MIN })).toEqual({ kind: "live", phase: "normal", clock: "1:00" });
+  });
+});
+
+describe("waitMessage", () => {
+  it("says when Talk is available again", () => {
+    const when = new Date("2026-10-15T15:45:00.000Z");
+    expect(waitMessage("cooldown", when, "en-US", "UTC")).toMatch(/^Talk is resting after your last call\. It's available again at 3:45\sPM\.$/);
+    expect(waitMessage("locked", when, "en-US", "UTC")).toMatch(/^Too many wrong codes\. Talk is available again at 3:45\sPM\.$/);
   });
 });

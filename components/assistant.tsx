@@ -6,10 +6,13 @@ import { ArrowUp, Loader2, Sparkles, X } from "lucide-react";
 import type { ProductCard as Card } from "@/lib/product";
 
 import { ProductCard } from "./product-card";
+import { VoiceCall, type VoiceCallHandle } from "./voice-call";
 
 /**
  * The shop assistant: a floating button and a chat panel. Any page can open
  * it with a question via <AskButton> (a window event, so no shared state).
+ * With `voice`, the panel also offers Talk (<VoiceCall>); during a call,
+ * typed text goes into the live call instead of typed chat.
  */
 type Turn = { role: "user" | "assistant"; content: string; products?: Card[] };
 
@@ -28,19 +31,27 @@ export function AskButton({ prompt, label }: { prompt: string; label: string }) 
   );
 }
 
-export function Assistant({ enabled }: { enabled: boolean }) {
+export function Assistant({ enabled, voice = false }: { enabled: boolean; voice?: boolean }) {
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [voiceLive, setVoiceLive] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const call = useRef<VoiceCallHandle>(null);
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
 
   async function ask(text: string) {
     const q = text.trim();
-    if (!q || busy) return;
+    if (!q) return;
+    if (call.current?.send(q)) {
+      setDraft("");
+      return;
+    }
+    if (busy) return;
     const next: Turn[] = [...turnsRef.current, { role: "user", content: q }];
     setTurns(next);
     setDraft("");
@@ -107,6 +118,8 @@ export function Assistant({ enabled }: { enabled: boolean }) {
             </button>
           </header>
 
+          {voice && <VoiceCall ref={call} onLiveChange={setVoiceLive} onMicProblem={() => input.current?.focus()} />}
+
           <div ref={scroller} className="flex min-h-[220px] flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
             {!enabled ? (
               <p className="text-[14px] text-fog">The assistant isn&apos;t switched on for this store yet (it needs an ANTHROPIC_API_KEY).</p>
@@ -154,7 +167,7 @@ export function Assistant({ enabled }: { enabled: boolean }) {
             {error && <p className="text-[13px] text-bad">{error}</p>}
           </div>
 
-          {enabled && (
+          {(enabled || voiceLive) && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -167,6 +180,7 @@ export function Assistant({ enabled }: { enabled: boolean }) {
               </label>
               <textarea
                 id="assistant-input"
+                ref={input}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -177,12 +191,12 @@ export function Assistant({ enabled }: { enabled: boolean }) {
                 }}
                 rows={1}
                 maxLength={2000}
-                placeholder="Ask about any product…"
+                placeholder={voiceLive ? "Type into the call…" : "Ask about any product…"}
                 className="max-h-32 min-h-[42px] flex-1 resize-none rounded-2xl border border-line bg-bg px-3.5 py-2.5 text-[14px] placeholder:text-mist focus:border-accent focus:outline-none"
               />
               <button
                 type="submit"
-                disabled={busy || !draft.trim()}
+                disabled={(busy && !voiceLive) || !draft.trim()}
                 aria-label="Send"
                 className="grid size-[42px] shrink-0 place-items-center rounded-full bg-accent text-on-accent transition-colors hover:bg-accent-2 disabled:opacity-40"
               >

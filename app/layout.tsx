@@ -4,6 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Assistant } from "@/components/assistant";
 import { Header } from "@/components/header";
+import { catalogConfigured } from "@/lib/catalog";
+import { voiceConfigured } from "@/lib/voice";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
@@ -22,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="mx-auto mt-20 max-w-7xl border-t border-line px-4 py-8 text-xs text-mist sm:px-6">
           Machine Shop is a demonstration store: browse and ask, no ordering. Product data from a 2021 public catalog crawl.
         </footer>
-        <Assistant enabled={!!process.env.ANTHROPIC_API_KEY} />
+        <Assistant enabled={!!process.env.ANTHROPIC_API_KEY} voice={voiceConfigured() && catalogConfigured()} />
       </body>
     </html>
   );
