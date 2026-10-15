@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useImperativeHandle, useRef, useState, type FormEvent, type Ref } from "react";
-import { Loader2, Mic, PhoneOff, X } from "lucide-react";
+import { Loader2, Mic, PhoneOff, ScrollText, X } from "lucide-react";
 
 import type { ProductCard as Card } from "@/lib/product";
 import {
@@ -11,14 +11,16 @@ import {
 } from "@/lib/voice";
 
 import { ProductCard } from "./product-card";
+import { TranscriptModal } from "./transcript-modal";
 
 /**
  * Talk mode in the assistant panel: the Talk button, the code prompt with the
  * transcription notice, and the live call. The browser talks to OpenAI
  * directly over WebRTC with the one-call pass from /api/voice/session, runs
  * the model's skill requests through /api/voice/tool, and saves finished
- * caption lines through /api/voice/transcript. The decisions live in
- * lib/voice.ts; this file wires them to the browser.
+ * caption lines through /api/voice/transcript. The transcript button opens
+ * those lines in <TranscriptModal>, live during the call and after it. The
+ * decisions live in lib/voice.ts; this file wires them to the browser.
  */
 
 export type VoiceCallHandle = {
@@ -54,6 +56,9 @@ export function VoiceCall({
   const [log, setLog] = useState<CallLog>(emptyCallLog);
   const [cards, setCards] = useState<CardGroup[]>([]);
   const [announcement, setAnnouncement] = useState("");
+  const [lines, setLines] = useState<OutgoingLine[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   const callRef = useRef<Call | null>(null);
   const tokenRef = useRef<string | null>(null);
@@ -110,6 +115,7 @@ export function VoiceCall({
     logRef.current = next;
     setLog(next);
     if (line) {
+      setLines((l) => [...l, line]);
       queueRef.current.push(line);
       void flush();
     }
@@ -134,6 +140,7 @@ export function VoiceCall({
             const products = data.products;
             logRef.current = withShownProducts(logRef.current, products.map((p) => p.id));
             setCards((g) => [...g, { at: Date.now(), products }]);
+            setNames((n) => ({ ...n, ...Object.fromEntries(products.map((p) => [p.id, p.name])) }));
           }
           return { callId: c.callId, output: data.output ?? JSON.stringify({ error: data.error ?? "That didn't work." }) };
         } catch {
@@ -261,6 +268,8 @@ export function VoiceCall({
     logRef.current = emptyCallLog();
     setLog(logRef.current);
     setCards([]);
+    setLines([]);
+    setNames({});
     setAnnouncement("");
     queueRef.current = [];
     respondingRef.current = false;
@@ -499,6 +508,22 @@ export function VoiceCall({
         </p>
       )}
 
+      {(stage === "live" || entries.length > 0 || lines.length > 0) && (
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] text-mist">{stage === "live" ? "Live captions" : "Call captions"}</span>
+          <button
+            type="button"
+            onClick={() => setTranscriptOpen(true)}
+            aria-label="Open the call transcript"
+            aria-haspopup="dialog"
+            title="Transcript"
+            className="rounded-full p-1.5 text-mist hover:bg-panel-2 hover:text-ink"
+          >
+            <ScrollText className="size-4" />
+          </button>
+        </div>
+      )}
+
       {(stage === "live" || entries.length > 0) && (
         <div
           ref={captionsRef}
@@ -525,6 +550,8 @@ export function VoiceCall({
           )}
         </div>
       )}
+
+      <TranscriptModal open={transcriptOpen} onClose={() => setTranscriptOpen(false)} lines={lines} names={names} live={stage === "live"} />
     </div>
   );
 }

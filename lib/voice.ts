@@ -4,7 +4,8 @@ import { assistantInstructions, MAX_SHOWN, SKILLS } from "./assistant-skills";
  * Talk mode's rules as pure functions: the access code, lockout, cooldown, the
  * 5-minute timer, transcript cleanup, the configuration check and the OpenAI
  * realtime session settings, plus the Talk panel's decisions (reading live
- * call events, what to send back, which state to show). No database or
+ * call events, what to send back, which state to show) and the transcript
+ * window's rows. No database or
  * network here; the voice routes, lib/voice-store.ts and
  * components/voice-call.tsx do that, using these rules. Safe to import in
  * the browser.
@@ -413,4 +414,53 @@ export function waitMessage(reason: "cooldown" | "locked", at: Date, locale?: st
   return reason === "locked"
     ? `Too many wrong codes. Talk is available again at ${when}.`
     : `Talk is resting after your last call. It's available again at ${when}.`;
+}
+
+// --- Transcript window --------------------------------------------------------
+
+/** A transcript line as the window receives it: from the panel (time in ms) or from the store or its JSON (Date or ISO text). */
+export type StoredLine = { speaker: Speaker; text: string; at: Date | string | number; productIds?: string[] };
+
+export type ProductLink = { id: string; href: string; label: string };
+
+/** One row of the transcript window. `dateTime` is ISO for <time>, or "" when the time is unreadable. */
+export type TranscriptRow = { key: string; speaker: Speaker; label: string; time: string; dateTime: string; text: string; products: ProductLink[] };
+
+export const SPEAKER_LABELS: Record<Speaker, string> = { shopper: "You", assistant: "Assistant" };
+
+/** "3:45:12 PM", in the shopper's own clock unless a locale and time zone are given. */
+export const formatLineTime = (at: Date, locale?: string, timeZone?: string) =>
+  at.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone });
+
+/**
+ * Turns transcript lines into the window's rows, oldest first (lines with the
+ * same time keep their order; an unreadable time goes last, with no time
+ * shown). Each product id becomes a link to /p/[id], named from `names` when
+ * the panel knows it, otherwise "Product 1", "Product 2" and so on.
+ */
+export function transcriptRows(
+  lines: readonly StoredLine[],
+  opts: { names?: Record<string, string>; locale?: string; timeZone?: string } = {},
+): TranscriptRow[] {
+  const timed = lines.map((line, i) => {
+    const at = new Date(line.at);
+    return { line, i, ms: Number.isNaN(at.getTime()) ? Infinity : at.getTime(), at };
+  });
+  timed.sort((a, b) => (a.ms === b.ms ? a.i - b.i : a.ms - b.ms));
+  return timed.map(({ line, i, ms, at }) => {
+    const known = ms !== Infinity;
+    return {
+      key: `${i}-${known ? ms : "x"}`,
+      speaker: line.speaker,
+      label: SPEAKER_LABELS[line.speaker] ?? line.speaker,
+      time: known ? formatLineTime(at, opts.locale, opts.timeZone) : "",
+      dateTime: known ? at.toISOString() : "",
+      text: line.text,
+      products: (line.productIds ?? []).map((id, n) => ({
+        id,
+        href: `/p/${encodeURIComponent(id)}`,
+        label: opts.names?.[id] ?? `Product ${n + 1}`,
+      })),
+    };
+  });
 }

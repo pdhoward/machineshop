@@ -13,9 +13,9 @@ import { readFileSync } from "node:fs";
 import {
   applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
   formatClock, isLockedOut, LOCKOUT_MS, MAX_LINE_CHARS, MAX_LINES, MIC_MESSAGES, micProblem, missingVoiceSettings, parseRealtimeEvent, readTalkStatus,
-  recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, typedTextEvents,
-  VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
-  type Attempts, type CallLog, type CaptionAction, type TalkStatus,
+  recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, transcriptRows,
+  typedTextEvents, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
+  type Attempts, type CallLog, type CaptionAction, type StoredLine, type TalkStatus,
 } from "./voice";
 
 const T0 = new Date("2026-10-15T12:00:00.000Z");
@@ -500,5 +500,81 @@ describe("waitMessage", () => {
     const when = new Date("2026-10-15T15:45:00.000Z");
     expect(waitMessage("cooldown", when, "en-US", "UTC")).toMatch(/^Talk is resting after your last call\. It's available again at 3:45\sPM\.$/);
     expect(waitMessage("locked", when, "en-US", "UTC")).toMatch(/^Too many wrong codes\. Talk is available again at 3:45\sPM\.$/);
+  });
+});
+
+describe("transcriptRows", () => {
+  const DRILL = "64a1f0c2e4b0a1b2c3d4e5f6";
+  const SAW = "64a1f0c2e4b0a1b2c3d4e5f7";
+  const utc = { locale: "en-US", timeZone: "UTC" };
+  const rows = (lines: StoredLine[], opts = {}) => transcriptRows(lines, { ...utc, ...opts });
+
+  it("orders lines by time, keeping the order of lines with the same time", () => {
+    const out = rows([
+      { speaker: "assistant", text: "Here are two drills.", at: at(20_000) },
+      { speaker: "shopper", text: "I need a drill.", at: at(5_000) },
+      { speaker: "shopper", text: "Cordless.", at: at(5_000) },
+    ]);
+    expect(out.map((r) => r.text)).toEqual(["I need a drill.", "Cordless.", "Here are two drills."]);
+    expect(new Set(out.map((r) => r.key)).size).toBe(3);
+  });
+
+  it("reads times from the panel (ms), the store (Date) and its JSON (ISO text) alike", () => {
+    const out = rows([
+      { speaker: "assistant", text: "third", at: at(3_000).toISOString() },
+      { speaker: "shopper", text: "first", at: at(1_000).getTime() },
+      { speaker: "shopper", text: "second", at: at(2_000) },
+    ]);
+    expect(out.map((r) => r.text)).toEqual(["first", "second", "third"]);
+  });
+
+  it("formats the time as the clock time with seconds, and gives an ISO time for <time>", () => {
+    const [row] = rows([{ speaker: "shopper", text: "Hi", at: new Date("2026-10-15T15:45:07.000Z") }]);
+    expect(row!.time).toMatch(/^3:45:07\sPM$/);
+    expect(row!.dateTime).toBe("2026-10-15T15:45:07.000Z");
+  });
+
+  it("puts a line with an unreadable time last, with no time shown", () => {
+    const out = rows([
+      { speaker: "shopper", text: "lost", at: "not a time" },
+      { speaker: "assistant", text: "kept", at: at(0) },
+    ]);
+    expect(out.map((r) => [r.text, r.time, r.dateTime])).toEqual([["kept", expect.any(String), T0.toISOString()], ["lost", "", ""]]);
+  });
+
+  it("labels the speakers", () => {
+    const out = rows([
+      { speaker: "shopper", text: "a", at: at(0) },
+      { speaker: "assistant", text: "b", at: at(1) },
+    ]);
+    expect(out.map((r) => [r.speaker, r.label])).toEqual([["shopper", "You"], ["assistant", "Assistant"]]);
+  });
+
+  it("links each product mentioned to its page, named when the panel knows the name", () => {
+    const [row] = rows([{ speaker: "assistant", text: "Try these.", at: at(0), productIds: [DRILL, SAW] }], { names: { [DRILL]: "Cordless Drill 20V" } });
+    expect(row!.products).toEqual([
+      { id: DRILL, href: `/p/${DRILL}`, label: "Cordless Drill 20V" },
+      { id: SAW, href: `/p/${SAW}`, label: "Product 2" },
+    ]);
+  });
+
+  it("gives lines without products no links", () => {
+    const out = rows([
+      { speaker: "shopper", text: "Hello", at: at(0) },
+      { speaker: "assistant", text: "Hi there.", at: at(1), productIds: [] },
+    ]);
+    expect(out.map((r) => r.products)).toEqual([[], []]);
+  });
+
+  it("shows the panel's saved lines as they were captioned", () => {
+    let log = emptyCallLog();
+    log = withShownProducts(log, [DRILL]);
+    const { line } = applyCaption(log, { kind: "caption", id: "a1", speaker: "assistant", text: "This drill.", mode: "final" }, at(9_000).getTime());
+    const [row] = rows([line!]);
+    expect(row).toMatchObject({ label: "Assistant", text: "This drill.", dateTime: at(9_000).toISOString(), products: [{ href: `/p/${DRILL}` }] });
+  });
+
+  it("returns no rows for an empty transcript", () => {
+    expect(transcriptRows([])).toEqual([]);
   });
 });
