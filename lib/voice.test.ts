@@ -9,8 +9,8 @@ const catalog = vi.hoisted(() => ({
 vi.mock("./catalog", () => catalog);
 
 import {
-  buildSessionConfig, callEndsAt, canTalk, cleanLines, codeMatches, isLockedOut, LOCKOUT_MS, MAX_LINE_CHARS, MAX_LINES,
-  missingVoiceSettings, recordMiss, talkAvailableAt, timerPhase, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured,
+  buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, isLockedOut, LOCKOUT_MS, MAX_LINE_CHARS, MAX_LINES,
+  missingVoiceSettings, recordMiss, talkAvailableAt, timerPhase, TRANSCRIPT_GRACE_MS, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured,
   type Attempts,
 } from "./voice";
 
@@ -93,6 +93,31 @@ describe("cooldown", () => {
   it("lets a caller with no previous call talk", () => {
     expect(canTalk(null, T0)).toBe(true);
     expect(canTalk(undefined, T0)).toBe(true);
+  });
+});
+
+describe("callOpen", () => {
+  const call = { endsAt: at(5 * MIN), endedAt: null };
+
+  it("is open until the 5-minute end, to the millisecond", () => {
+    expect(callOpen(call, T0)).toBe(true);
+    expect(callOpen(call, at(5 * MIN - 1))).toBe(true);
+    expect(callOpen(call, at(5 * MIN))).toBe(false);
+  });
+
+  it("closes when the call is hung up early", () => {
+    const ended = { ...call, endedAt: at(2 * MIN) };
+    expect(callOpen(ended, at(2 * MIN - 1))).toBe(true);
+    expect(callOpen(ended, at(2 * MIN))).toBe(false);
+  });
+
+  it("stays open for the grace period after whichever comes first", () => {
+    expect(TRANSCRIPT_GRACE_MS).toBe(30_000);
+    expect(callOpen(call, at(5 * MIN + TRANSCRIPT_GRACE_MS - 1), TRANSCRIPT_GRACE_MS)).toBe(true);
+    expect(callOpen(call, at(5 * MIN + TRANSCRIPT_GRACE_MS), TRANSCRIPT_GRACE_MS)).toBe(false);
+    const ended = { ...call, endedAt: at(MIN) };
+    expect(callOpen(ended, at(MIN + TRANSCRIPT_GRACE_MS - 1), TRANSCRIPT_GRACE_MS)).toBe(true);
+    expect(callOpen(ended, at(MIN + TRANSCRIPT_GRACE_MS), TRANSCRIPT_GRACE_MS)).toBe(false);
   });
 });
 

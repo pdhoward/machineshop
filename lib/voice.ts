@@ -58,6 +58,18 @@ export const talkAvailableAt = (start: Date) => new Date(start.getTime() + CALL_
 export const canTalk = (lastStart: Date | null | undefined, now: Date) =>
   !lastStart || now.getTime() >= talkAvailableAt(lastStart).getTime();
 
+/** Time after a call closes during which the browser may still send its last transcript lines. */
+export const TRANSCRIPT_GRACE_MS = 30_000;
+
+/**
+ * Whether a call is still open at `now`: before its 5-minute end and before it
+ * was hung up, whichever is first, plus `graceMs`. This is the server-side cap.
+ */
+export function callOpen(s: { endsAt: Date; endedAt: Date | null }, now: Date, graceMs = 0): boolean {
+  const closed = Math.min(s.endsAt.getTime(), s.endedAt?.getTime() ?? Infinity);
+  return now.getTime() < closed + graceMs;
+}
+
 // --- Timer ------------------------------------------------------------------
 
 export const FINAL_MS = 30_000;
