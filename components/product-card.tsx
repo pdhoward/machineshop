@@ -64,9 +64,9 @@ export function ProductCard({ p, compact = false }: { p: Card; compact?: boolean
         rel="noopener"
         aria-label={`Save ${p.name} as PDF`}
         title="Save as PDF"
-        className="absolute right-2 top-2 grid size-7 place-items-center rounded-full border border-line bg-panel text-fog shadow-sm hover:border-accent hover:text-accent"
+        className="absolute right-2 top-2 inline-flex h-7 items-center gap-1 rounded-full border border-line bg-panel/95 pl-2 pr-2.5 text-[11px] font-semibold text-fog shadow-sm backdrop-blur transition-colors hover:border-accent hover:text-accent"
       >
-        <FileDown className="size-3.5" />
+        <FileDown className="size-3.5" /> PDF
       </a>
     </div>
   );

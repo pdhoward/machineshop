@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useImperativeHandle, useRef, useState, type FormEvent, type Ref } from "react";
-import { Loader2, Mic, PhoneOff, ScrollText, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Phone, ScrollText, X } from "lucide-react";
 
 import type { ProductCard as Card } from "@/lib/product";
 import {
@@ -19,7 +19,8 @@ import { TranscriptModal } from "./transcript-modal";
  * directly over WebRTC with the one-call pass from /api/voice/session, runs
  * the model's skill requests through /api/voice/tool, and saves finished
  * caption lines through /api/voice/transcript. Captions aren't drawn in the
- * panel, only product cards are; the transcript button opens the lines in
+ * panel, only product cards are, one carousel per round of results; the
+ * transcript button opens the lines in
  * <TranscriptModal>, live during the call and after it. The
  * decisions live in lib/voice.ts; this file wires them to the browser.
  */
@@ -39,10 +40,13 @@ const stopTracks = (s: MediaStream) => s.getTracks().forEach((t) => t.stop());
 
 export function VoiceCall({
   ref,
+  talkOnOpen = false,
   onLiveChange,
   onMicProblem,
 }: {
   ref?: Ref<VoiceCallHandle>;
+  /** Opens straight to the code prompt (the dock's Talk button). */
+  talkOnOpen?: boolean;
   onLiveChange: (live: boolean) => void;
   onMicProblem: () => void;
 }) {
@@ -74,7 +78,7 @@ export function VoiceCall({
   const codeRef = useRef<HTMLInputElement>(null);
   const talkRef = useRef<HTMLButtonElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
-  const cardsStripRef = useRef<HTMLDivElement>(null);
+  const cardsListRef = useRef<HTMLDivElement>(null);
   const focusTalkRef = useRef(false);
 
   const view = voicePanelView({ status, stage, remainingMs: deadline - now, mic, now });
@@ -328,6 +332,7 @@ export function VoiceCall({
   // Talk's status when the panel opens; hang up if the panel closes or the page goes away mid-call.
   useEffect(() => {
     void refreshStatus();
+    if (talkOnOpen) openPrompt();
     const onLeave = () => void hangUp("user");
     window.addEventListener("pagehide", onLeave);
     return () => {
@@ -377,9 +382,9 @@ export function VoiceCall({
     }
   }, [view.kind]);
 
-  // Newest card group last: bring it into view as it arrives.
+  // Newest carousel last: bring it into view as it arrives.
   useEffect(() => {
-    cardsStripRef.current?.scrollTo({ left: cardsStripRef.current.scrollWidth, behavior: "smooth" });
+    cardsListRef.current?.scrollTo({ top: cardsListRef.current.scrollHeight, behavior: "smooth" });
   }, [cards]);
 
   const talkButton = (
@@ -388,9 +393,9 @@ export function VoiceCall({
       type="button"
       onClick={openPrompt}
       aria-label="Talk to the assistant"
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-semibold text-on-accent transition-colors hover:bg-accent-2"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent py-1.5 pl-2.5 pr-3.5 text-[13px] font-semibold text-on-accent shadow-sm transition-colors hover:bg-accent-2"
     >
-      <Mic className="size-4" /> Talk
+      <Phone className="size-3.5" fill="currentColor" strokeWidth={1.5} /> Talk
     </button>
   );
 
@@ -452,9 +457,9 @@ export function VoiceCall({
             <button
               type="submit"
               disabled={!code.trim()}
-              className="shrink-0 rounded-full bg-accent px-4 py-2 font-semibold text-on-accent transition-colors hover:bg-accent-2 disabled:opacity-40"
+              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-call py-2 pl-3 pr-4 font-semibold text-white shadow-sm transition-colors hover:bg-call-2 disabled:opacity-40"
             >
-              Start call
+              <Phone className="size-4" fill="currentColor" strokeWidth={1.5} /> Start call
             </button>
             <button type="button" onClick={cancelPrompt} aria-label="Cancel call" className="rounded-full p-1.5 text-mist hover:bg-panel-2 hover:text-ink">
               <X className="size-4" />
@@ -470,23 +475,30 @@ export function VoiceCall({
       )}
 
       {view.kind === "live" && (
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-2 font-medium">
-            <span aria-hidden className="size-2 animate-pulse rounded-full bg-good" /> Live
+        <div className="flex items-center gap-3 rounded-2xl border border-call/25 bg-call/[0.07] py-2 pl-3.5 pr-2">
+          <span aria-hidden className="relative flex size-2.5">
+            <span className="absolute inset-0 animate-ping rounded-full bg-call/60 motion-reduce:hidden" />
+            <span className="relative size-2.5 rounded-full bg-call" />
           </span>
+          <div className="flex-1 leading-tight">
+            <p className="font-semibold">Live with the Shop Assistant</p>
+            <p className="text-[12px] text-mist">Just talk, or type below.</p>
+          </div>
           <span
             role="timer"
             aria-label={`Time left ${view.clock}`}
-            className={view.phase === "final" ? "font-semibold tabular-nums text-bad" : "tabular-nums text-mist"}
+            className={view.phase === "final" ? "font-semibold tabular-nums text-bad" : "font-medium tabular-nums text-fog"}
           >
             {view.phase === "final" ? `${view.clock} left` : view.clock}
           </span>
           <button
             type="button"
             onClick={() => void hangUp("user")}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-line px-3.5 py-1.5 text-[13px] font-medium hover:border-bad hover:text-bad"
+            aria-label="Hang up"
+            title="Hang up"
+            className="grid size-10 shrink-0 place-items-center rounded-full bg-hangup text-white shadow-[0_6px_16px_-6px_var(--hangup)] transition-[background-color,transform] hover:scale-105 hover:bg-hangup-2"
           >
-            <PhoneOff className="size-4" /> Hang up
+            <Phone className="size-[18px] rotate-[135deg]" fill="currentColor" strokeWidth={1.5} />
           </button>
         </div>
       )}
@@ -527,26 +539,61 @@ export function VoiceCall({
       )}
 
       {cards.length > 0 && (
-        <div
-          ref={cardsStripRef}
-          role="region"
-          aria-label="Products from this call"
-          tabIndex={0}
-          className="-mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1 focus:outline-none"
-        >
+        <div ref={cardsListRef} role="region" aria-label="Products from this call" className="-mx-4 flex max-h-[46vh] flex-col gap-3 overflow-y-auto px-4 pb-1">
           {cards.map((g, i) => (
-            <div key={`cards-${i}`} className={`flex shrink-0 gap-2.5 ${i > 0 ? "border-l border-line pl-2.5" : ""}`}>
-              {g.products.map((p) => (
-                <div key={p.id} className="w-[150px] shrink-0">
-                  <ProductCard p={p} compact />
-                </div>
-              ))}
-            </div>
+            <CardCarousel key={`cards-${g.at}-${i}`} group={g} round={i + 1} />
           ))}
         </div>
       )}
 
       <TranscriptModal open={transcriptOpen} onClose={() => setTranscriptOpen(false)} lines={lines} names={names} live={stage === "live"} />
     </div>
+  );
+}
+
+/** One round of results: a labelled, swipeable row of cards, with arrows on wider screens. */
+function CardCarousel({ group, round }: { group: CardGroup<Card>; round: number }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: true, end: true });
+
+  function measure() {
+    const row = rowRef.current;
+    if (row) setEdges({ start: row.scrollLeft <= 4, end: row.scrollLeft + row.clientWidth >= row.scrollWidth - 4 });
+  }
+
+  useEffect(measure, [group]);
+
+  const scroll = (dir: 1 | -1) => rowRef.current?.scrollBy({ left: dir * rowRef.current.clientWidth * 0.8, behavior: "smooth" });
+  const count = group.products.length;
+  const label = `${group.auto ? "Found" : "Recommended"} · ${count} ${count === 1 ? "product" : "products"}`;
+  const arrow =
+    "absolute top-[38%] hidden size-8 -translate-y-1/2 place-items-center rounded-full border border-line bg-panel/95 text-ink shadow-md backdrop-blur hover:border-accent hover:text-accent sm:grid";
+
+  return (
+    <section aria-label={`Round ${round}: ${label}`} className="rise-in flex flex-col gap-1.5">
+      <p className="flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-mist">
+        <span className="grid size-4 place-items-center rounded-full bg-panel-2 text-[9.5px] text-fog">{round}</span>
+        {label}
+      </p>
+      <div className="relative">
+        <div ref={rowRef} onScroll={measure} tabIndex={0} className="no-scrollbar flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 focus:outline-none">
+          {group.products.map((p) => (
+            <div key={p.id} className="w-[148px] shrink-0 snap-start">
+              <ProductCard p={p} compact />
+            </div>
+          ))}
+        </div>
+        {!edges.start && (
+          <button type="button" onClick={() => scroll(-1)} aria-label="Previous products" className={`${arrow} -left-2`}>
+            <ChevronLeft className="size-4" />
+          </button>
+        )}
+        {!edges.end && (
+          <button type="button" onClick={() => scroll(1)} aria-label="More products" className={`${arrow} -right-2`}>
+            <ChevronRight className="size-4" />
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
