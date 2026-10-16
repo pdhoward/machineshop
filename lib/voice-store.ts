@@ -120,7 +120,7 @@ export function voiceStore(getDb: () => Promise<Db> = voiceDb) {
       return res.modifiedCount > 0;
     },
 
-    /** When this device or network last started a call, for the cooldown. */
+    /** When this device or network last started a call. */
     async lastCallStart(caller: Caller): Promise<Date | null> {
       const [doc] = await (await cols()).sessions
         .find({ $or: [{ deviceHash: hashId(caller.deviceId) }, { networkHash: hashId(caller.ip) }] })

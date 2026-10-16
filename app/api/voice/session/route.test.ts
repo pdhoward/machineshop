@@ -44,7 +44,7 @@ vi.mock("@/lib/voice-store", async () => {
   return { voiceStore: () => store };
 });
 
-import { buildSessionConfig, CALL_MS, COOLDOWN_MS, LOCKOUT_MS, MAX_MISSES } from "@/lib/voice";
+import { buildSessionConfig, CALL_MS, LOCKOUT_MS, MAX_MISSES } from "@/lib/voice";
 import { signSessionToken, verifySessionToken } from "@/lib/voice-token";
 
 import { DELETE, GET, POST } from "./route";
@@ -161,33 +161,38 @@ describe("POST start", () => {
     expect((await start(CODE)).status).toBe(200);
   });
 
-  it("checks lockout before cooldown and cooldown before the code", async () => {
-    fake.sessions.push({ id: "old", deviceId: DEVICE, ip: IP, start: new Date(T0.getTime() - HOUR), endsAt: T0, endedAt: T0 });
-    // Cooling down: a wrong code isn't even checked, so it isn't counted.
-    expect(await (await start("wrong")).json()).toMatchObject({ reason: "cooldown" });
-    expect(fake.attempts.size).toBe(0);
-    // Locked out and cooling down: lockout wins.
+  it("checks the code right after a recent call, and lockout still wins", async () => {
+    fake.sessions.push({ id: "old", deviceId: DEVICE, ip: IP, start: new Date(T0.getTime() - MIN), endsAt: new Date(T0.getTime() + 4 * MIN), endedAt: T0 });
+    // No wait after a call: a wrong code is checked and counted toward lockout.
+    const wrong = await start("wrong");
+    expect(wrong.status).toBe(403);
+    expect(await wrong.json()).toMatchObject({ reason: "wrong_code" });
+    expect(fake.attempts.get(`device:${DEVICE}`)).toEqual({ count: 1, lockedUntil: null });
+    expect(fake.attempts.get(`network:${IP}`)).toEqual({ count: 1, lockedUntil: null });
+    // The right code starts a call.
+    expect((await start(CODE)).status).toBe(200);
+    // Locked out after a recent call: lockout wins.
     fake.attempts.set(`network:${IP}`, { count: MAX_MISSES, lockedUntil: new Date(T0.getTime() + HOUR) });
     expect(await (await start(CODE)).json()).toMatchObject({ reason: "locked" });
   });
 
-  it("refuses during cooldown and says when Talk is available (last start + 5 min + 3 h)", async () => {
-    const lastStart = new Date(T0.getTime() - HOUR);
-    fake.sessions.push({ id: "old", deviceId: "another-device", ip: IP, start: lastStart, endsAt: new Date(lastStart.getTime() + CALL_MS), endedAt: null });
-    const res = await start(CODE);
-    expect(res.status).toBe(429);
-    expect(await res.json()).toMatchObject({
-      reason: "cooldown",
-      availableAt: new Date(lastStart.getTime() + CALL_MS + COOLDOWN_MS).toISOString(),
-    });
-    expect(openai).not.toHaveBeenCalled();
-    expect(fake.sessions).toHaveLength(1);
+  it("allows back-to-back calls from the same device and network", async () => {
+    expect((await start(CODE)).status).toBe(200);
+    expect((await start(CODE)).status).toBe(200);
+    expect(fake.sessions).toHaveLength(2);
+    expect(fake.sessions.map((s) => [s.deviceId, s.ip])).toEqual([[DEVICE, IP], [DEVICE, IP]]);
+    expect(openai).toHaveBeenCalledTimes(2);
   });
 
-  it("allows a new call exactly when the cooldown ends", async () => {
-    const lastStart = new Date(T0.getTime() - CALL_MS - COOLDOWN_MS);
-    fake.sessions.push({ id: "old", deviceId: DEVICE, ip: IP, start: lastStart, endsAt: new Date(lastStart.getTime() + CALL_MS), endedAt: null });
-    expect((await start(CODE)).status).toBe(200);
+  it("still caps each call at 5 minutes from its own start", async () => {
+    await start(CODE);
+    const secondStart = new Date(T0.getTime() + CALL_MS);
+    vi.setSystemTime(secondStart);
+    const body = await (await start(CODE)).json();
+    const endsAt = new Date(secondStart.getTime() + CALL_MS);
+    expect(body.endsAt).toBe(endsAt.toISOString());
+    expect(verifySessionToken(body.token, SECRET)).toEqual({ sessionId: "session-2", endsAt });
+    expect(fake.sessions[1]).toMatchObject({ start: secondStart, endsAt });
   });
 
   it("returns a pass, the end time and a signed token, and never the OpenAI key", async () => {
@@ -226,7 +231,7 @@ describe("POST start", () => {
     expect(fake.attempts.size).toBe(0);
   });
 
-  it("returns 502 and records no call (so no cooldown) when OpenAI refuses the pass", async () => {
+  it("returns 502 and records no call when OpenAI refuses the pass", async () => {
     openai.mockResolvedValueOnce(Response.json({ error: { message: "nope" } }, { status: 500 }));
     const res = await start(CODE);
     expect(res.status).toBe(502);
@@ -260,15 +265,11 @@ describe("GET status", () => {
     expect(await res.json()).toEqual({ available: true });
   });
 
-  it("reports when Talk will be available during cooldown", async () => {
-    await start(CODE);
-    vi.setSystemTime(new Date(T0.getTime() + 2 * HOUR));
-    expect(await (await GET(req("GET"))).json()).toEqual({
-      available: false,
-      reason: "cooldown",
-      availableAt: new Date(T0.getTime() + CALL_MS + COOLDOWN_MS).toISOString(),
-    });
-    vi.setSystemTime(new Date(T0.getTime() + CALL_MS + COOLDOWN_MS));
+  it("reports Talk available right after a call starts and again after it ends", async () => {
+    const { token } = await (await start(CODE)).json();
+    expect(await (await GET(req("GET"))).json()).toEqual({ available: true });
+    vi.setSystemTime(new Date(T0.getTime() + 2 * MIN));
+    await DELETE(req("DELETE", { token }));
     expect(await (await GET(req("GET"))).json()).toEqual({ available: true });
   });
 

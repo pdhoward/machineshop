@@ -11,9 +11,9 @@ vi.mock("./catalog", () => catalog);
 import { readFileSync } from "node:fs";
 
 import {
-  addCardGroup, applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
+  addCardGroup, applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
   formatClock, isLockedOut, LOCKOUT_MS, OWNER_PAGE_SIZE, OWNER_SESSION_MS, OWNER_SPEAKER_LABELS, pageNumber, TRANSCRIPT_KEEP_MS, transcriptsSince, withinKeep, MAX_LINE_CHARS, MAX_LINES, MIC_MESSAGES, micProblem, missingVoiceSettings, parseRealtimeEvent, readTalkStatus,
-  recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, transcriptRows, transcriptText, EMPTY_TRANSCRIPT_TEXT,
+  recordMiss, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, transcriptRows, transcriptText, EMPTY_TRANSCRIPT_TEXT,
   typedTextEvents, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, VOICE_STYLE, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
   type Attempts, type CallLog, type CaptionAction, type CardGroup, type StoredLine, type TalkStatus,
 } from "./voice";
@@ -86,17 +86,6 @@ describe("lockout", () => {
 describe("cooldown", () => {
   it("ends the call 5 minutes after it starts", () => {
     expect(callEndsAt(T0)).toEqual(at(5 * MIN));
-  });
-
-  it("makes Talk available again at start + 5 min + 3 h, to the millisecond", () => {
-    expect(talkAvailableAt(T0)).toEqual(at(5 * MIN + 3 * HOUR));
-    expect(canTalk(T0, at(5 * MIN + 3 * HOUR - 1))).toBe(false);
-    expect(canTalk(T0, at(5 * MIN + 3 * HOUR))).toBe(true);
-  });
-
-  it("lets a caller with no previous call talk", () => {
-    expect(canTalk(null, T0)).toBe(true);
-    expect(canTalk(undefined, T0)).toBe(true);
   });
 });
 

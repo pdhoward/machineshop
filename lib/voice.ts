@@ -48,19 +48,11 @@ export function recordMiss(a: Attempts | null | undefined, now: Date): Attempts 
   return { count, lockedUntil: count >= MAX_MISSES ? new Date(now.getTime() + LOCKOUT_MS) : null };
 }
 
-// --- Call length and cooldown -----------------------------------------------
+// --- Call length ------------------------------------------------------------
 
 export const CALL_MS = 5 * MINUTE;
-export const COOLDOWN_MS = 3 * HOUR;
 
 export const callEndsAt = (start: Date) => new Date(start.getTime() + CALL_MS);
-
-/** When Talk is available again after a call that started at `start`: start + 5 min + 3 h. */
-export const talkAvailableAt = (start: Date) => new Date(start.getTime() + CALL_MS + COOLDOWN_MS);
-
-/** Whether a caller whose last call started at `lastStart` may talk at `now`. */
-export const canTalk = (lastStart: Date | null | undefined, now: Date) =>
-  !lastStart || now.getTime() >= talkAvailableAt(lastStart).getTime();
 
 /** Time after a call closes during which the browser may still send its last transcript lines. */
 export const TRANSCRIPT_GRACE_MS = 30_000;

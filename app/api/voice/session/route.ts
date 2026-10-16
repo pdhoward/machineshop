@@ -1,16 +1,17 @@
 import { catalogConfigured } from "@/lib/catalog";
-import { buildSessionConfig, canTalk, codeMatches, talkAvailableAt, voiceConfigured } from "@/lib/voice";
+import { buildSessionConfig, codeMatches, voiceConfigured } from "@/lib/voice";
 import { caller, clearMisses, countMiss, device, deviceCookie, lockedUntil, type Device } from "@/lib/voice-caller";
 import { voiceStore } from "@/lib/voice-store";
 import { bearerToken, signSessionToken, verifySessionToken } from "@/lib/voice-token";
 
 /**
  * Talk mode's call session.
- * - GET: whether Talk is available now, or when it will be.
- * - POST `{ code }`: checks configuration, lockout, cooldown, then the access
- *   code (a wrong code counts toward lockout). Then gets a one-call pass from
- *   OpenAI, records the call and returns the pass, the end time and a signed
- *   session token. The OpenAI key never leaves the server.
+ * - GET: whether Talk is available now, or locked out until when.
+ * - POST `{ code }`: checks configuration, lockout, then the access code (a
+ *   wrong code counts toward lockout). Then gets a one-call pass from OpenAI,
+ *   records the call and returns the pass, the end time and a signed session
+ *   token. There is no wait between calls; each is capped at 5 minutes. The
+ *   OpenAI key never leaves the server.
  * - DELETE with `Authorization: Bearer <token>`: marks the call ended.
  * The device ID lives in an httpOnly cookie set here.
  */
@@ -33,9 +34,6 @@ function reply(body: unknown, status: number, dev: Device) {
 
 const locked = (until: Date, dev: Device) =>
   reply({ error: "Too many wrong codes. Try again later.", reason: "locked", availableAt: until.toISOString() }, 429, dev);
-
-const coolingDown = (until: Date, dev: Device) =>
-  reply({ error: "Talk is resting after your last call.", reason: "cooldown", availableAt: until.toISOString() }, 429, dev);
 
 /** A one-call pass (OpenAI realtime client secret) for the browser, or null if OpenAI refused. */
 async function requestPass(now: Date): Promise<{ value: string; expiresAt: Date } | null> {
@@ -68,10 +66,6 @@ export async function GET(request: Request) {
     const store = voiceStore();
     const until = await lockedUntil(store, c, now);
     if (until) return reply({ available: false, reason: "locked", availableAt: until.toISOString() }, 200, dev);
-    const last = await store.lastCallStart(c);
-    if (!canTalk(last, now)) {
-      return reply({ available: false, reason: "cooldown", availableAt: talkAvailableAt(last!).toISOString() }, 200, dev);
-    }
     return reply({ available: true }, 200, dev);
   } catch (err) {
     console.error("[voice/session]", err);
@@ -91,9 +85,6 @@ export async function POST(request: Request) {
     const until = await lockedUntil(store, c, now);
     if (until) return locked(until, dev);
 
-    const last = await store.lastCallStart(c);
-    if (!canTalk(last, now)) return coolingDown(talkAvailableAt(last!), dev);
-
     if (!codeMatches(code, process.env.VOICE_ACCESS_CODE)) {
       const nowLocked = await countMiss(store, c, now);
       if (nowLocked) return locked(nowLocked, dev);
@@ -101,7 +92,7 @@ export async function POST(request: Request) {
     }
     await clearMisses(store, c);
 
-    // Get the pass before recording the call, so an OpenAI failure doesn't start a cooldown.
+    // Get the pass before recording the call, so an OpenAI failure doesn't record a call that never happened.
     const pass = await requestPass(now);
     if (!pass) return reply({ error: SNAG }, 502, dev);
     const session = await store.startSession(c, now);
