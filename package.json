@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "diagnose:voice": "dotenv -e ../../envmachine/machineshop/development/.env.development.local -- vitest run --config vitest.voice.config.ts",
-    "diagnose:voice:runtime": "vitest run --config vitest.voice.config.ts"
+    "diagnose:voice:runtime": "vitest run --config vitest.voice.config.ts",
+    "diagnose:voice:db": "dotenv -e ../../envmachine/machineshop/development/.env.development.local -- node scripts/diagnose-voice-db.mjs",
+    "diagnose:voice:openai": "dotenv -e ../../envmachine/machineshop/development/.env.development.local -- node scripts/diagnose-openai-key.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",

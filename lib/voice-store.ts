@@ -43,7 +43,16 @@ export async function voiceDb(): Promise<Db> {
   if (!name) throw new Error("VOICE_MONGODB_DB is not set.");
   // Same URI means the same login; the voice database must have its own, which can write only there.
   if (uri === process.env.MONGODB_URI) throw new Error("VOICE_MONGODB_URI must not be the catalog's MONGODB_URI.");
-  g.voiceMongo ??= new MongoClient(uri, { maxPoolSize: 5, serverSelectionTimeoutMS: 8000 }).connect();
+  if (!g.voiceMongo) {
+    const client = new MongoClient(uri, { maxPoolSize: 5, serverSelectionTimeoutMS: 8000 });
+    // Share an in-flight attempt, but never pin a rejected promise for the process lifetime.
+    const pending = client.connect().catch(async (error: unknown) => {
+      if (g.voiceMongo === pending) delete g.voiceMongo;
+      await client.close().catch(() => undefined);
+      throw error;
+    });
+    g.voiceMongo = pending;
+  }
   const client = await g.voiceMongo;
   return client.db(name);
 }

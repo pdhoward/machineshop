@@ -11,11 +11,13 @@ const catalog = vi.hoisted(() => ({
 }));
 vi.mock("./catalog", () => catalog);
 
-const mongo = vi.hoisted(() => ({ uris: [] as string[], dbNames: [] as string[] }));
+const mongo = vi.hoisted(() => ({ uris: [] as string[], dbNames: [] as string[], failures: 0, closes: 0 }));
 vi.mock("mongodb", () => ({
   MongoClient: class {
     constructor(uri: string) { mongo.uris.push(uri); }
+    async close() { mongo.closes++; }
     async connect() {
+      if (mongo.failures > 0) { mongo.failures--; throw new Error("simulated DNS failure"); }
       return { db: (name: string) => (mongo.dbNames.push(name), { databaseName: name }) };
     }
   },
@@ -115,6 +117,8 @@ beforeEach(() => {
   vi.stubEnv("VOICE_SECRET", SECRET);
   mongo.uris.length = 0;
   mongo.dbNames.length = 0;
+  mongo.failures = 0;
+  mongo.closes = 0;
   delete (globalThis as { voiceMongo?: unknown }).voiceMongo;
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -122,6 +126,24 @@ afterEach(() => vi.unstubAllEnvs());
 // --- Tests -----------------------------------------------------------------
 
 describe("connection", () => {
+  it("clears a failed connection so a later request can recover", async () => {
+    vi.stubEnv("VOICE_MONGODB_URI", "mongodb://voice.test/");
+    vi.stubEnv("VOICE_MONGODB_DB", "voice_test");
+    mongo.failures = 1;
+    await expect(voiceDb()).rejects.toThrow("simulated DNS failure");
+    await expect(voiceDb()).resolves.toEqual({ databaseName: "voice_test" });
+    expect(mongo.closes).toBe(1);
+    await voiceDb();
+    expect(mongo.uris).toHaveLength(2);
+  });
+
+  it("shares one pending connection across concurrent requests", async () => {
+    vi.stubEnv("VOICE_MONGODB_URI", "mongodb://voice.test/");
+    vi.stubEnv("VOICE_MONGODB_DB", "voice_test");
+    await Promise.all([voiceDb(), voiceDb(), voiceDb()]);
+    expect(mongo.uris).toHaveLength(1);
+  });
+
   it("refuses to run without VOICE_MONGODB_URI, even when the catalog's MONGODB_URI is set", async () => {
     vi.stubEnv("MONGODB_URI", "mongodb://catalog.test/");
     vi.stubEnv("VOICE_MONGODB_URI", "");
