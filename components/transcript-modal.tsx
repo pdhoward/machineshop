@@ -2,12 +2,13 @@
 
 import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import Link from "next/link";
-import { X } from "lucide-react";
+import { Download, X } from "lucide-react";
 
-import { transcriptRows, type Speaker, type StoredLine } from "@/lib/voice";
+import { EMPTY_TRANSCRIPT_TEXT, transcriptRows, transcriptText, type Speaker, type StoredLine } from "@/lib/voice";
 
 /**
- * The transcript window: who spoke, when, and links to the products shown.
+ * The transcript window: who spoke, when, and links to the products shown,
+ * with a Download button that saves the same lines as a text file.
  * A modal <dialog>, so the page behind it is inert. Tab wraps inside it, Esc
  * (or the close button, or a click outside) calls `onClose`, and focus goes
  * back to whatever opened it. Used by the Talk panel during and after a call,
@@ -60,6 +61,19 @@ export function TranscriptModal({
     if (open) listRef.current?.lastElementChild?.scrollIntoView({ block: "nearest" });
   }, [open, rows.length]);
 
+  /** Saves the lines already on screen as a .txt file; nothing is fetched or sent. */
+  function download() {
+    const { text, fileName } = transcriptText(lines, { origin: window.location.origin, names, labels });
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLDialogElement>) {
     if (e.key !== "Tab") return;
     const items = [...(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
@@ -102,6 +116,15 @@ export function TranscriptModal({
             {live ? "Updates live during the call." : "Who spoke, when, and the products shown."}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={download}
+          disabled={rows.length === 0}
+          aria-label="Download transcript as a text file"
+          className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-[12.5px] font-medium text-fog hover:border-accent hover:text-accent disabled:pointer-events-none disabled:opacity-40"
+        >
+          <Download className="size-3.5" /> Download
+        </button>
         <button type="button" onClick={onClose} aria-label="Close transcript" className="rounded-full p-1.5 text-mist hover:bg-panel-2 hover:text-ink">
           <X className="size-4" />
         </button>
@@ -109,7 +132,7 @@ export function TranscriptModal({
 
       <div tabIndex={0} aria-label="Transcript lines" role="region" className="flex-1 overflow-y-auto px-5 py-4 text-[14px] focus:outline-none">
         {rows.length === 0 ? (
-          <p className="text-mist">{live ? "Nothing said yet. Lines appear here as the call goes on." : "This call has no transcript lines."}</p>
+          <p className="text-mist">{live ? "Nothing said yet. Lines appear here as the call goes on." : EMPTY_TRANSCRIPT_TEXT}</p>
         ) : (
           <ol ref={listRef} className="flex flex-col gap-3.5">
             {rows.map((r) => (

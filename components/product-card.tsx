@@ -1,11 +1,16 @@
 import Link from "next/link";
-import { ImageOff, Star } from "lucide-react";
+import { FileDown, ImageOff, Star } from "lucide-react";
 
 import { money, type ProductCard as Card } from "@/lib/product";
 
-/** One product: photo, name, one-line blurb, price and stock. The whole card is the link. */
+/**
+ * One product: photo, name, one-line blurb, price and stock. The whole card is
+ * the link. Compact cards (the assistant panel) also get a "Save as PDF"
+ * button in the photo corner, beside the link since a link can't hold another
+ * control, which opens the printable sheet in a new tab.
+ */
 export function ProductCard({ p, compact = false }: { p: Card; compact?: boolean }) {
-  return (
+  const card = (
     <Link
       href={`/p/${p.id}`}
       className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-panel transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)]"
@@ -46,5 +51,23 @@ export function ProductCard({ p, compact = false }: { p: Card; compact?: boolean
         </div>
       </div>
     </Link>
+  );
+
+  if (!compact) return card;
+
+  return (
+    <div className="relative h-full">
+      {card}
+      <a
+        href={`/p/${p.id}/sheet`}
+        target="_blank"
+        rel="noopener"
+        aria-label={`Save ${p.name} as PDF`}
+        title="Save as PDF"
+        className="absolute right-2 top-2 grid size-7 place-items-center rounded-full border border-line bg-panel text-fog shadow-sm hover:border-accent hover:text-accent"
+      >
+        <FileDown className="size-3.5" />
+      </a>
+    </div>
   );
 }

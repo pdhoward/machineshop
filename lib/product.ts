@@ -128,3 +128,37 @@ export function toProduct(raw: RawProduct): Product {
 
 export const money = (price: number | null, currency = "USD") =>
   price == null ? "Price unavailable" : price.toLocaleString("en-US", { style: "currency", currency });
+
+export const SHEET_HIGHLIGHTS = 8;
+export const SHEET_SPECS = 12;
+
+export type SheetFields = {
+  name: string;
+  brand: string | null;
+  image: string | null;
+  price: string;
+  stock: string;
+  inStock: boolean;
+  highlights: string[];
+  specs: { label: string; value: string }[];
+  link: string;
+};
+
+/**
+ * What the printable product sheet shows: the large image (or none), the
+ * formatted price ("Price unavailable" when there isn't one), the stock text,
+ * at most 8 highlights and 12 specs, and the full product link on `origin`.
+ */
+export function sheetFields(p: Product, origin: string): SheetFields {
+  return {
+    name: p.name,
+    brand: p.brand,
+    image: p.images[0] ?? (p.image ? imageAt(p.image, 1000) : null),
+    price: money(p.price, p.currency),
+    stock: p.inStock ? "In stock" : "Out of stock",
+    inStock: p.inStock,
+    highlights: p.highlights.slice(0, SHEET_HIGHLIGHTS),
+    specs: p.specs.slice(0, SHEET_SPECS),
+    link: `${origin.replace(/\/+$/, "")}/p/${encodeURIComponent(p.id)}`,
+  };
+}

@@ -5,7 +5,7 @@ import { assistantInstructions, MAX_SHOWN, SKILLS } from "./assistant-skills";
  * 5-minute timer, transcript cleanup, the configuration check and the OpenAI
  * realtime session settings, plus the Talk panel's decisions (reading live
  * call events, what to send back, which state to show) and the transcript
- * window's rows. No database or
+ * window's rows and download. No database or
  * network here; the voice routes, lib/voice-store.ts and
  * components/voice-call.tsx do that, using these rules. Safe to import in
  * the browser.
@@ -495,6 +495,40 @@ export function transcriptRows(
       })),
     };
   });
+}
+
+export const EMPTY_TRANSCRIPT_TEXT = "This call has no transcript lines.";
+
+/** "2026-10-16-1530": the date and 24-hour time for a file name, in the shopper's own clock unless a time zone is given. */
+function fileStamp(at: Date, timeZone?: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone })
+      .formatToParts(at)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}-${parts.hour}${parts.minute}`;
+}
+
+/**
+ * The transcript as a plain text file, from the same rows as the window: one
+ * "[time] Speaker: text" line each, in order, with the products shown listed
+ * under their line as "name: full link" (`origin` is the site's address).
+ * An empty transcript is a one-line message. The file name is dated from the
+ * first line with a readable time, or `now`: machine-shop-call-2026-10-16-1530.txt.
+ */
+export function transcriptText(
+  lines: readonly StoredLine[],
+  opts: { origin: string; names?: Record<string, string>; labels?: Record<Speaker, string>; locale?: string; timeZone?: string; now?: Date },
+): { text: string; fileName: string } {
+  const rows = transcriptRows(lines, opts);
+  const first = rows.find((r) => r.dateTime);
+  const fileName = `machine-shop-call-${fileStamp(first ? new Date(first.dateTime) : (opts.now ?? new Date()), opts.timeZone)}.txt`;
+  if (!rows.length) return { text: `${EMPTY_TRANSCRIPT_TEXT}\n`, fileName };
+  const origin = opts.origin.replace(/\/+$/, "");
+  const text = rows
+    .map((r) => [`[${r.time || "time unknown"}] ${r.label}: ${r.text}`, ...r.products.map((p) => `    ${p.label}: ${origin}${p.href}`)].join("\n"))
+    .join("\n");
+  return { text: `${text}\n`, fileName };
 }
 
 // --- Owner view ---------------------------------------------------------------

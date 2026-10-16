@@ -16,7 +16,8 @@
   --bad: #c93636;
 }
 
-@media (prefers-color-scheme: dark) {
+/* Screens only: printed pages (the product sheet) keep the light tokens, dark ink on white paper. */
+@media screen and (prefers-color-scheme: dark) {
   :root {
     --bg: #0e0e11;
     --panel: #17171b;

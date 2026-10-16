@@ -18,8 +18,9 @@ import { TranscriptModal } from "./transcript-modal";
  * transcription notice, and the live call. The browser talks to OpenAI
  * directly over WebRTC with the one-call pass from /api/voice/session, runs
  * the model's skill requests through /api/voice/tool, and saves finished
- * caption lines through /api/voice/transcript. The transcript button opens
- * those lines in <TranscriptModal>, live during the call and after it. The
+ * caption lines through /api/voice/transcript. Captions aren't drawn in the
+ * panel, only product cards are; the transcript button opens the lines in
+ * <TranscriptModal>, live during the call and after it. The
  * decisions live in lib/voice.ts; this file wires them to the browser.
  */
 
@@ -52,7 +53,6 @@ export function VoiceCall({
   const [code, setCode] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [deadline, setDeadline] = useState(0);
-  const [log, setLog] = useState<CallLog>(emptyCallLog);
   const [cards, setCards] = useState<CardGroup<Card>[]>([]);
   const [announcement, setAnnouncement] = useState("");
   const [lines, setLines] = useState<OutgoingLine[]>([]);
@@ -62,7 +62,8 @@ export function VoiceCall({
   const callRef = useRef<Call | null>(null);
   const tokenRef = useRef<string | null>(null);
   const deadlineRef = useRef(0);
-  const logRef = useRef<CallLog>(log);
+  // Captions are collected here (and saved as lines), not drawn in the panel.
+  const logRef = useRef<CallLog>(emptyCallLog());
   const cardsRef = useRef<CardGroup<Card>[]>(cards);
   const queueRef = useRef<OutgoingLine[]>([]);
   const flushingRef = useRef(false);
@@ -73,7 +74,7 @@ export function VoiceCall({
   const codeRef = useRef<HTMLInputElement>(null);
   const talkRef = useRef<HTMLButtonElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
-  const captionsRef = useRef<HTMLDivElement>(null);
+  const cardsStripRef = useRef<HTMLDivElement>(null);
   const focusTalkRef = useRef(false);
 
   const view = voicePanelView({ status, stage, remainingMs: deadline - now, mic, now });
@@ -113,7 +114,6 @@ export function VoiceCall({
   function addCaption(a: CaptionAction) {
     const { log: next, line } = applyCaption(logRef.current, a, Date.now());
     logRef.current = next;
-    setLog(next);
     if (line) {
       setLines((l) => [...l, line]);
       queueRef.current.push(line);
@@ -270,7 +270,6 @@ export function VoiceCall({
     deadlineRef.current = sentAt + CALL_MS;
     setDeadline(deadlineRef.current);
     logRef.current = emptyCallLog();
-    setLog(logRef.current);
     cardsRef.current = [];
     setCards([]);
     setLines([]);
@@ -378,14 +377,10 @@ export function VoiceCall({
     }
   }, [view.kind]);
 
+  // Newest card group last: bring it into view as it arrives.
   useEffect(() => {
-    captionsRef.current?.scrollTo({ top: captionsRef.current.scrollHeight, behavior: "smooth" });
-  }, [log, cards]);
-
-  const entries = [
-    ...log.captions.filter((c) => c.text).map((c) => ({ at: c.at, key: c.id, caption: c, products: null })),
-    ...cards.map((g, i) => ({ at: g.at, key: `cards-${i}`, caption: null, products: g.products })),
-  ].sort((a, b) => a.at - b.at);
+    cardsStripRef.current?.scrollTo({ left: cardsStripRef.current.scrollWidth, behavior: "smooth" });
+  }, [cards]);
 
   const talkButton = (
     <button
@@ -513,9 +508,9 @@ export function VoiceCall({
         </p>
       )}
 
-      {(stage === "live" || entries.length > 0 || lines.length > 0) && (
+      {(stage === "live" || cards.length > 0 || lines.length > 0) && (
         <div className="flex items-center justify-between">
-          <span className="text-[12px] text-mist">{stage === "live" ? "Live captions" : "Call captions"}</span>
+          <span className="text-[12px] text-mist">Transcript</span>
           <button
             type="button"
             onClick={() => setTranscriptOpen(true)}
@@ -529,30 +524,23 @@ export function VoiceCall({
         </div>
       )}
 
-      {(stage === "live" || entries.length > 0) && (
+      {cards.length > 0 && (
         <div
-          ref={captionsRef}
+          ref={cardsStripRef}
           role="region"
-          aria-label={stage === "live" ? "Live captions" : "Call captions"}
+          aria-label="Products from this call"
           tabIndex={0}
-          className="flex max-h-[38vh] flex-col gap-3 overflow-y-auto rounded-2xl bg-panel-2 px-3 py-2.5"
+          className="-mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1 focus:outline-none"
         >
-          {entries.length === 0 && <p className="text-mist">Say hello. Captions appear here.</p>}
-          {entries.map((e) =>
-            e.caption ? (
-              <p key={e.key} className={e.caption.final ? "" : "text-fog"}>
-                <span className="font-semibold">{e.caption.speaker === "shopper" ? "You" : "Assistant"}:</span> {e.caption.text}
-              </p>
-            ) : (
-              <div key={e.key} className="-mx-3 flex gap-2.5 overflow-x-auto px-3 pb-1">
-                {e.products!.map((p) => (
-                  <div key={p.id} className="w-[150px] shrink-0">
-                    <ProductCard p={p} compact />
-                  </div>
-                ))}
-              </div>
-            ),
-          )}
+          {cards.map((g, i) => (
+            <div key={`cards-${i}`} className={`flex shrink-0 gap-2.5 ${i > 0 ? "border-l border-line pl-2.5" : ""}`}>
+              {g.products.map((p) => (
+                <div key={p.id} className="w-[150px] shrink-0">
+                  <ProductCard p={p} compact />
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
 

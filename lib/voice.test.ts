@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import {
   addCardGroup, applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
   formatClock, isLockedOut, LOCKOUT_MS, OWNER_PAGE_SIZE, OWNER_SESSION_MS, OWNER_SPEAKER_LABELS, pageNumber, TRANSCRIPT_KEEP_MS, transcriptsSince, withinKeep, MAX_LINE_CHARS, MAX_LINES, MIC_MESSAGES, micProblem, missingVoiceSettings, parseRealtimeEvent, readTalkStatus,
-  recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, transcriptRows,
+  recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, transcriptRows, transcriptText, EMPTY_TRANSCRIPT_TEXT,
   typedTextEvents, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, VOICE_STYLE, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
   type Attempts, type CallLog, type CaptionAction, type CardGroup, type StoredLine, type TalkStatus,
 } from "./voice";
@@ -657,6 +657,81 @@ describe("transcriptRows", () => {
 
   it("returns no rows for an empty transcript", () => {
     expect(transcriptRows([])).toEqual([]);
+  });
+});
+
+describe("transcriptText", () => {
+  const DRILL = "64a1f0c2e4b0a1b2c3d4e5f6";
+  const SAW = "64a1f0c2e4b0a1b2c3d4e5f7";
+  const ORIGIN = "https://shop.example.test";
+  const base = { origin: ORIGIN, locale: "en-US", timeZone: "UTC" };
+  // T0 is 12:00:00 UTC.
+  const LINES: StoredLine[] = [
+    { speaker: "assistant", text: "Here are two drills.", at: at(20_000), productIds: [DRILL, SAW] },
+    { speaker: "shopper", text: "I need a drill.", at: at(5_000) },
+    { speaker: "shopper", text: "Thanks!", at: at(40_000) },
+  ];
+
+  it("writes each line as time, speaker and text, in order", () => {
+    const { text } = transcriptText(LINES, base);
+    const said = text.split("\n").filter((l) => l.startsWith("["));
+    expect(said).toHaveLength(3);
+    expect(said[0]).toMatch(/^\[12:00:05\sPM\] You: I need a drill\.$/);
+    expect(said[1]).toMatch(/^\[12:00:20\sPM\] Assistant: Here are two drills\.$/);
+    expect(said[2]).toMatch(/^\[12:00:40\sPM\] You: Thanks!$/);
+    expect(text.endsWith("\n")).toBe(true);
+  });
+
+  it("lists product names and full links under the line that showed them", () => {
+    const { text } = transcriptText(LINES, { ...base, names: { [DRILL]: "Cordless Drill 20V" } });
+    const out = text.split("\n");
+    const i = out.findIndex((l) => l.includes("Here are two drills."));
+    expect(out.slice(i + 1, i + 3)).toEqual([
+      `    Cordless Drill 20V: ${ORIGIN}/p/${DRILL}`,
+      `    Product 2: ${ORIGIN}/p/${SAW}`,
+    ]);
+    expect(out[i + 3]).toMatch(/You: Thanks!$/);
+    // Only that line lists products.
+    expect(out.filter((l) => l.includes("/p/"))).toHaveLength(2);
+  });
+
+  it("drops a trailing slash from the site address", () => {
+    const { text } = transcriptText(LINES, { ...base, origin: `${ORIGIN}/` });
+    expect(text).toContain(`${ORIGIN}/p/${DRILL}`);
+    expect(text).not.toContain(`${ORIGIN}//p/`);
+  });
+
+  it("labels the shopper 'You' for the shopper and 'Shopper' for the owner", () => {
+    expect(transcriptText(LINES, base).text).toContain("You: I need a drill.");
+    const owner = transcriptText(LINES, { ...base, labels: OWNER_SPEAKER_LABELS }).text;
+    expect(owner).toContain("Shopper: I need a drill.");
+    expect(owner).not.toContain("You:");
+    expect(owner).toContain("Assistant: Here are two drills.");
+  });
+
+  it("marks a line with an unreadable time instead of dropping it", () => {
+    const { text } = transcriptText([{ speaker: "shopper", text: "lost", at: "not a time" }], base);
+    expect(text).toBe("[time unknown] You: lost\n");
+  });
+
+  it("gives a one-line message for an empty transcript", () => {
+    const { text } = transcriptText([], { ...base, now: T0 });
+    expect(text).toBe(`${EMPTY_TRANSCRIPT_TEXT}\n`);
+    expect(text.trim().split("\n")).toHaveLength(1);
+  });
+
+  it("names the file from the first line's date and 24-hour time", () => {
+    const lines: StoredLine[] = [{ speaker: "shopper", text: "Hi", at: new Date("2026-10-16T15:30:45.000Z") }];
+    expect(transcriptText(lines, base).fileName).toBe("machine-shop-call-2026-10-16-1530.txt");
+    // Morning hours keep their leading zero; midnight is 00.
+    expect(transcriptText([{ ...lines[0]!, at: new Date("2026-01-02T00:05:00.000Z") }], base).fileName).toBe("machine-shop-call-2026-01-02-0005.txt");
+    expect(transcriptText([{ ...lines[0]!, at: new Date("2026-03-04T09:07:00.000Z") }], base).fileName).toBe("machine-shop-call-2026-03-04-0907.txt");
+  });
+
+  it("dates the file in the given time zone, and from now when no line has a time", () => {
+    const lines: StoredLine[] = [{ speaker: "shopper", text: "Hi", at: new Date("2026-10-16T15:30:00.000Z") }];
+    expect(transcriptText(lines, { ...base, timeZone: "America/New_York" }).fileName).toBe("machine-shop-call-2026-10-16-1130.txt");
+    expect(transcriptText([], { ...base, now: new Date("2026-10-16T08:15:00.000Z") }).fileName).toBe("machine-shop-call-2026-10-16-0815.txt");
   });
 });
 
