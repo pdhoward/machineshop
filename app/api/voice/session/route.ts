@@ -8,10 +8,9 @@ import { bearerToken, signSessionToken, verifySessionToken } from "@/lib/voice-t
  * Talk mode's call session.
  * - GET: whether Talk is available now, or locked out until when.
  * - POST `{ code }`: checks configuration, lockout, then the access code (a
- *   wrong code counts toward lockout). Then gets a one-call pass from OpenAI,
- *   records the call and returns the pass, the end time and a signed session
- *   token. There is no wait between calls; each is capped at 5 minutes. The
- *   OpenAI key never leaves the server.
+ *   wrong code counts toward lockout). Then gets a one-call pass from
+ *   OpenAI, records the call and returns the pass, the end time and a signed
+ *   session token. The OpenAI key never leaves the server.
  * - DELETE with `Authorization: Bearer <token>`: marks the call ended.
  * The device ID lives in an httpOnly cookie set here.
  */
@@ -92,7 +91,7 @@ export async function POST(request: Request) {
     }
     await clearMisses(store, c);
 
-    // Get the pass before recording the call, so an OpenAI failure doesn't record a call that never happened.
+    // Get the pass before recording the call, so a failed OpenAI request leaves no half-recorded call.
     const pass = await requestPass(now);
     if (!pass) return reply({ error: SNAG }, 502, dev);
     const session = await store.startSession(c, now);

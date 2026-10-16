@@ -83,7 +83,7 @@ describe("lockout", () => {
   });
 });
 
-describe("cooldown", () => {
+describe("call length", () => {
   it("ends the call 5 minutes after it starts", () => {
     expect(callEndsAt(T0)).toEqual(at(5 * MIN));
   });

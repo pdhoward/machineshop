@@ -161,38 +161,39 @@ describe("POST start", () => {
     expect((await start(CODE)).status).toBe(200);
   });
 
-  it("checks the code right after a recent call, and lockout still wins", async () => {
-    fake.sessions.push({ id: "old", deviceId: DEVICE, ip: IP, start: new Date(T0.getTime() - MIN), endsAt: new Date(T0.getTime() + 4 * MIN), endedAt: T0 });
-    // No wait after a call: a wrong code is checked and counted toward lockout.
-    const wrong = await start("wrong");
-    expect(wrong.status).toBe(403);
-    expect(await wrong.json()).toMatchObject({ reason: "wrong_code" });
+  it("checks lockout before the code", async () => {
+    fake.sessions.push({ id: "old", deviceId: DEVICE, ip: IP, start: new Date(T0.getTime() - CALL_MS), endsAt: T0, endedAt: T0 });
+    // A recent caller's wrong code is still checked and counted.
+    const res = await start("wrong");
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ reason: "wrong_code" });
     expect(fake.attempts.get(`device:${DEVICE}`)).toEqual({ count: 1, lockedUntil: null });
-    expect(fake.attempts.get(`network:${IP}`)).toEqual({ count: 1, lockedUntil: null });
-    // The right code starts a call.
-    expect((await start(CODE)).status).toBe(200);
-    // Locked out after a recent call: lockout wins.
+    // Locked out: lockout wins over the right code.
     fake.attempts.set(`network:${IP}`, { count: MAX_MISSES, lockedUntil: new Date(T0.getTime() + HOUR) });
     expect(await (await start(CODE)).json()).toMatchObject({ reason: "locked" });
+    expect(openai).not.toHaveBeenCalled();
+    expect(fake.sessions).toHaveLength(1);
   });
 
-  it("allows back-to-back calls from the same device and network", async () => {
-    expect((await start(CODE)).status).toBe(200);
-    expect((await start(CODE)).status).toBe(200);
+  it("lets a caller start a new call straight after the last one", async () => {
+    const lastStart = new Date(T0.getTime() - CALL_MS);
+    fake.sessions.push({ id: "old", deviceId: DEVICE, ip: IP, start: lastStart, endsAt: T0, endedAt: T0 });
+    const res = await start(CODE);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ pass: PASS, endsAt: new Date(T0.getTime() + CALL_MS).toISOString() });
+    expect(openai).toHaveBeenCalledTimes(1);
     expect(fake.sessions).toHaveLength(2);
-    expect(fake.sessions.map((s) => [s.deviceId, s.ip])).toEqual([[DEVICE, IP], [DEVICE, IP]]);
-    expect(openai).toHaveBeenCalledTimes(2);
+    expect(fake.sessions[1]).toEqual(expect.objectContaining({ id: "session-2", deviceId: DEVICE, ip: IP, start: T0 }));
   });
 
-  it("still caps each call at 5 minutes from its own start", async () => {
-    await start(CODE);
-    const secondStart = new Date(T0.getTime() + CALL_MS);
-    vi.setSystemTime(secondStart);
-    const body = await (await start(CODE)).json();
-    const endsAt = new Date(secondStart.getTime() + CALL_MS);
-    expect(body.endsAt).toBe(endsAt.toISOString());
-    expect(verifySessionToken(body.token, SECRET)).toEqual({ sessionId: "session-2", endsAt });
-    expect(fake.sessions[1]).toMatchObject({ start: secondStart, endsAt });
+  it("a call still recorded for another device on the same network doesn't block a new one", async () => {
+    const lastStart = new Date(T0.getTime() - MIN);
+    fake.sessions.push({ id: "old", deviceId: "another-device", ip: IP, start: lastStart, endsAt: new Date(lastStart.getTime() + CALL_MS), endedAt: null });
+    const res = await start(CODE);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ pass: PASS });
+    expect(fake.sessions).toHaveLength(2);
+    expect(fake.sessions[1]).toEqual(expect.objectContaining({ deviceId: DEVICE, ip: IP, start: T0 }));
   });
 
   it("returns a pass, the end time and a signed token, and never the OpenAI key", async () => {
@@ -265,11 +266,11 @@ describe("GET status", () => {
     expect(await res.json()).toEqual({ available: true });
   });
 
-  it("reports Talk available right after a call starts and again after it ends", async () => {
-    const { token } = await (await start(CODE)).json();
+  it("reports Talk available right after a call", async () => {
+    await start(CODE);
+    vi.setSystemTime(new Date(T0.getTime() + CALL_MS));
     expect(await (await GET(req("GET"))).json()).toEqual({ available: true });
-    vi.setSystemTime(new Date(T0.getTime() + 2 * MIN));
-    await DELETE(req("DELETE", { token }));
+    vi.setSystemTime(new Date(T0.getTime() + 2 * HOUR));
     expect(await (await GET(req("GET"))).json()).toEqual({ available: true });
   });
 
