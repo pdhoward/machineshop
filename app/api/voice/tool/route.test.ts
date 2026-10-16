@@ -130,11 +130,12 @@ describe("refusals", () => {
 });
 
 describe("running skills", () => {
-  it("returns catalog search results as the model's output, with no cards", async () => {
+  it("returns catalog search results as the model's output, with the found cards", async () => {
     const res = await search();
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(Object.keys(body)).toEqual(["output"]);
+    expect(Object.keys(body)).toEqual(["output", "found"]);
+    expect(body.found).toEqual([DRILL, LAMP]);
     expect(catalog.search).toHaveBeenCalledWith({ q: "drill", maxPrice: undefined, minPrice: undefined, inStockOnly: false }, 1, 12);
     expect(JSON.parse(body.output)).toEqual({
       total: 2,
@@ -156,6 +157,60 @@ describe("running skills", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ output: "Shown.", products: [DRILL, LAMP] });
     expect(catalog.cardsByIds).toHaveBeenCalledWith(ids.slice(0, 6));
+  });
+
+  it("search replies carry at most the first 3 catalog cards as found, and no products", async () => {
+    const more = ["c", "d", "e"].map((ch, i) => card(ch.repeat(24), `Saw ${i}`, 10));
+    catalog.search.mockResolvedValueOnce({ items: [DRILL, LAMP, ...more], total: 5 });
+    const body = await (await search()).json();
+    expect(body.found).toEqual([DRILL, LAMP, more[0]]);
+    expect(body).not.toHaveProperty("products");
+    expect(catalog.cardsByIds).not.toHaveBeenCalled();
+  });
+
+  it("a search with no matches carries no cards", async () => {
+    catalog.search.mockResolvedValueOnce({ items: [], total: 0 });
+    expect(Object.keys(await (await search()).json())).toEqual(["output"]);
+  });
+
+  it("lookup replies carry that one catalog product as found, as a card", async () => {
+    catalog.product.mockImplementation(async (id: string) =>
+      id === DRILL.id ? { ...DRILL, images: [], description: "A strong drill.", highlights: [], categories: ["Tools"], color: null, specs: [], sourceHost: null } : null,
+    );
+    const res = await call({ name: "get_product", arguments: JSON.stringify({ id: DRILL.id }) }, tokenFor("live"));
+    const body = await res.json();
+    expect(body.found).toEqual([DRILL]);
+    expect(JSON.parse(body.output)).toMatchObject({ id: DRILL.id, name: "Cordless Drill" });
+    expect(body).not.toHaveProperty("products");
+  });
+
+  it("show_products returns products, never found, and at most 6 even when more are real", async () => {
+    const many = Array.from({ length: 8 }, (_, i) => card(String(i).repeat(24), `Thing ${i}`, 5));
+    for (const c of many) REAL.set(c.id, c);
+    try {
+      const res = await call({ name: "show_products", arguments: JSON.stringify({ ids: many.map((c) => c.id) }) }, tokenFor("live"));
+      const body = await res.json();
+      expect(body.products).toEqual(many.slice(0, 6));
+      expect(body).not.toHaveProperty("found");
+    } finally {
+      for (const c of many) REAL.delete(c.id);
+    }
+  });
+
+  it("refusals carry no cards", async () => {
+    const noCards = async (res: Response) => {
+      const body = await res.json();
+      expect(body).not.toHaveProperty("found");
+      expect(body).not.toHaveProperty("products");
+    };
+    await noCards(await search(null));
+    fake.sessions.set("live", { id: "live", start: T0, endsAt: ENDS, endedAt: T0 });
+    await noCards(await search());
+    fake.sessions.set("live", { id: "live", start: T0, endsAt: ENDS, endedAt: null });
+    vi.setSystemTime(ENDS);
+    await noCards(await search());
+    await noCards(await call({ name: "show_products", arguments: JSON.stringify({ ids: [DRILL.id] }) }, tokenFor("live")));
+    catalogUntouched();
   });
 
   it("passes back the catalog's answer for a missing product", async () => {

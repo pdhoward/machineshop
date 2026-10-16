@@ -10,7 +10,8 @@ import { bearerToken, verifySessionToken } from "@/lib/voice-token";
  * POST `{ name, arguments }` with `Authorization: Bearer <token>`. The browser
  * forwards the model's function call here and hands `output` back to it.
  * Refuses missing or forged tokens, and calls that ended or passed 5:00 (the
- * server-side cap). `show_products` also returns the cards for the panel.
+ * server-side cap). `show_products` also returns the cards for the panel as
+ * `products`; a search or lookup returns the cards it found as `found`.
  */
 
 const MAX_BODY_CHARS = 8_000;
@@ -54,8 +55,10 @@ export async function POST(request: Request) {
     if (!callOpen(session, new Date())) return reply({ error: "This call has ended.", reason: "ended" }, 403);
 
     const shown: ProductCard[] = [];
-    const output = await runTool(name, args, shown);
-    return reply(name === "show_products" ? { output, products: shown } : { output });
+    const found: ProductCard[] = [];
+    const output = await runTool(name, args, shown, found);
+    if (name === "show_products") return reply({ output, products: shown });
+    return reply(found.length ? { output, found } : { output });
   } catch (err) {
     console.error("[voice/tool]", err);
     return reply({ error: SNAG }, 502);

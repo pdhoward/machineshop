@@ -152,7 +152,7 @@ export const voiceConfigured = (env: Record<string, string | undefined> = proces
 export const VOICE_MAX_OUTPUT_TOKENS = 1024;
 
 export const VOICE_STYLE =
-  "You are speaking aloud on a live call. Keep replies to 1 to 3 short sentences in plain spoken language: no lists, links, markdown or symbols. Say prices the way a person would. If the shopper interrupts, stop and answer what they just said.";
+  "You are speaking aloud on a live call. Keep replies to 1 to 3 short sentences in plain spoken language: no lists, links, markdown or symbols. Say prices the way a person would. If the shopper interrupts, stop and answer what they just said. Whenever you mention specific products, call show_products with their ids in the same reply.";
 
 /**
  * The `session` settings for OpenAI's realtime client-secret request: the
@@ -281,6 +281,35 @@ export function applyCaption(log: CallLog, a: CaptionAction, now: number): { log
 
 /** Records the products a skill just showed, for the assistant's next line. */
 export const withShownProducts = (log: CallLog, ids: string[]): CallLog => ({ ...log, pendingProductIds: ids.slice(0, MAX_SHOWN) });
+
+/** One row of product cards in the Talk panel; `auto` rows came from a search or lookup, not the model's own pick. */
+export type CardGroup<C extends { id: string }> = { at: number; products: C[]; auto: boolean };
+
+/**
+ * Adds the cards one skill returned to the panel's rows. Cards a search or
+ * lookup `found` add an automatic row. The model's own pick (`picked`, from
+ * show_products) replaces the automatic rows added since the shopper last
+ * spoke, or adds a new row when there are none. No cards adds nothing. The
+ * ids now on screen wait in the log for the assistant's next line.
+ */
+export function addCardGroup<C extends { id: string }>(
+  groups: CardGroup<C>[],
+  log: CallLog,
+  products: C[],
+  source: "found" | "picked",
+  at: number,
+): { groups: CardGroup<C>[]; log: CallLog } {
+  if (!products.length) return { groups, log };
+  const shopperSpoke = Math.max(-Infinity, ...log.captions.filter((c) => c.speaker === "shopper").map((c) => c.at));
+  let keep = groups.length;
+  if (source === "picked") while (keep > 0 && groups[keep - 1]!.auto && groups[keep - 1]!.at > shopperSpoke) keep--;
+  const replaced = new Set(groups.slice(keep).flatMap((g) => g.products.map((p) => p.id)));
+  const ids = [...new Set([...log.pendingProductIds.filter((id) => !replaced.has(id)), ...products.map((p) => p.id)])];
+  return {
+    groups: [...groups.slice(0, keep), { at, products, auto: source === "found" }],
+    log: { ...log, pendingProductIds: ids.slice(-MAX_SHOWN) },
+  };
+}
 
 // Events the browser sends to the model on the data channel.
 

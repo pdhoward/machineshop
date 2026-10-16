@@ -11,11 +11,11 @@ vi.mock("./catalog", () => catalog);
 import { readFileSync } from "node:fs";
 
 import {
-  applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
+  addCardGroup, applyCaption, browserCanTalk, buildSessionConfig, callEndsAt, callOpen, canTalk, cleanLines, codeMatches, countdownAnnouncement, emptyCallLog,
   formatClock, isLockedOut, LOCKOUT_MS, OWNER_PAGE_SIZE, OWNER_SESSION_MS, OWNER_SPEAKER_LABELS, pageNumber, TRANSCRIPT_KEEP_MS, transcriptsSince, withinKeep, MAX_LINE_CHARS, MAX_LINES, MIC_MESSAGES, micProblem, missingVoiceSettings, parseRealtimeEvent, readTalkStatus,
   recordMiss, talkAvailableAt, TIME_UP, TIME_WARNING, timerPhase, timeWarningEvents, toolOutputEvents, TRANSCRIPT_GRACE_MS, transcriptRows,
-  typedTextEvents, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
-  type Attempts, type CallLog, type CaptionAction, type StoredLine, type TalkStatus,
+  typedTextEvents, VOICE_MAX_OUTPUT_TOKENS, VOICE_SETTINGS, VOICE_STYLE, voiceConfigured, voicePanelView, waitMessage, withShownProducts,
+  type Attempts, type CallLog, type CaptionAction, type CardGroup, type StoredLine, type TalkStatus,
 } from "./voice";
 
 const T0 = new Date("2026-10-15T12:00:00.000Z");
@@ -234,6 +234,14 @@ describe("buildSessionConfig", () => {
     expect(s.output_modalities).toEqual(["audio"]);
   });
 
+  it("tells the agent to show the products it mentions, keeping the token cap", () => {
+    const rule = "Whenever you mention specific products, call show_products with their ids in the same reply.";
+    expect(VOICE_STYLE).toContain(rule);
+    expect(s.instructions).toContain(rule);
+    expect(s.instructions).toContain("Only mention products, prices and specs that came from your tools. Never invent them.");
+    expect(s.max_output_tokens).toBe(VOICE_MAX_OUTPUT_TOKENS);
+  });
+
   it("uses the given model and holds no keys or settings values", () => {
     expect(s.model).toBe("test-voice-model");
     expect(s.type).toBe("realtime");
@@ -353,6 +361,74 @@ describe("applyCaption", () => {
     const { log, lines } = run([cap("u1", "shopper", "Nice", "final"), cap("a1", "assistant", "These two.", "final"), cap("a2", "assistant", "Anything else?", "final")], shown);
     expect(lines.map((l) => l.productIds)).toEqual([[], ids.slice(0, 6), []]);
     expect(log.pendingProductIds).toEqual([]);
+  });
+});
+
+describe("addCardGroup", () => {
+  type C = { id: string; name: string };
+  const c = (ch: string): C => ({ id: ch.repeat(24), name: `Product ${ch}` });
+  const [A, B, D, E] = ["a", "b", "d", "e"].map(c) as [C, C, C, C];
+  const none: CardGroup<C>[] = [];
+  const shopper = (log: CallLog, id: string, at: number): CallLog => applyCaption(log, { kind: "caption", id, speaker: "shopper", text: "More?", mode: "final" }, at).log;
+
+  it("adds an automatic group for found cards", () => {
+    const { groups, log } = addCardGroup(none, emptyCallLog(), [A, B], "found", 100);
+    expect(groups).toEqual([{ at: 100, products: [A, B], auto: true }]);
+    expect(log.pendingProductIds).toEqual([A.id, B.id]);
+  });
+
+  it("lets a following pick replace the automatic group instead of adding a second row", () => {
+    const found = addCardGroup(none, emptyCallLog(), [A, B], "found", 100);
+    const { groups, log } = addCardGroup(found.groups, found.log, [B, D], "picked", 200);
+    expect(groups).toEqual([{ at: 200, products: [B, D], auto: false }]);
+    expect(log.pendingProductIds).toEqual([B.id, D.id]);
+  });
+
+  it("replaces every automatic group from the same exchange, but not earlier picks", () => {
+    let s = addCardGroup(none, emptyCallLog(), [E], "picked", 50);
+    s = addCardGroup(s.groups, s.log, [A], "found", 100);
+    s = addCardGroup(s.groups, s.log, [B], "found", 110);
+    s = addCardGroup(s.groups, s.log, [D], "picked", 200);
+    expect(s.groups).toEqual([{ at: 50, products: [E], auto: false }, { at: 200, products: [D], auto: false }]);
+    expect(s.log.pendingProductIds).toEqual([E.id, D.id]);
+  });
+
+  it("adds a new group for a pick with no automatic group before it", () => {
+    const first = addCardGroup(none, emptyCallLog(), [A], "picked", 100);
+    expect(first.groups).toEqual([{ at: 100, products: [A], auto: false }]);
+    const second = addCardGroup(first.groups, first.log, [B], "picked", 200);
+    expect(second.groups.map((g) => g.products)).toEqual([[A], [B]]);
+  });
+
+  it("keeps automatic groups from before the shopper last spoke", () => {
+    const found = addCardGroup(none, emptyCallLog(), [A], "found", 100);
+    const { groups } = addCardGroup(found.groups, shopper(found.log, "u1", 150), [B], "picked", 200);
+    expect(groups.map((g) => [g.products, g.auto])).toEqual([[[A], true], [[B], false]]);
+  });
+
+  it("adds nothing for an empty result", () => {
+    const start = addCardGroup(none, emptyCallLog(), [A], "found", 100);
+    for (const source of ["found", "picked"] as const) {
+      const r = addCardGroup(start.groups, start.log, [], source, 200);
+      expect(r.groups).toBe(start.groups);
+      expect(r.log).toBe(start.log);
+    }
+  });
+
+  it("attaches the shown ids to the assistant's next transcript line only", () => {
+    let s = addCardGroup(none, emptyCallLog(), [A, B], "found", 100);
+    s = addCardGroup(s.groups, s.log, [D], "picked", 110);
+    const said = applyCaption(s.log, { kind: "caption", id: "a1", speaker: "assistant", text: "Try this one.", mode: "final" }, 120);
+    expect(said.line?.productIds).toEqual([D.id]);
+    const next = applyCaption(said.log, { kind: "caption", id: "a2", speaker: "assistant", text: "Anything else?", mode: "final" }, 130);
+    expect(next.line?.productIds).toEqual([]);
+  });
+
+  it("keeps at most 6 ids waiting, the newest", () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({ id: String(i).repeat(24), name: `P${i}` }));
+    let s = addCardGroup(none, emptyCallLog(), many.slice(0, 3), "found", 100);
+    s = addCardGroup(s.groups, shopper(s.log, "u1", 150), many.slice(3), "found", 200);
+    expect(s.log.pendingProductIds).toEqual(many.slice(2).map((p) => p.id));
   });
 });
 

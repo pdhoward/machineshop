@@ -5,9 +5,9 @@ import { Loader2, Mic, PhoneOff, ScrollText, X } from "lucide-react";
 
 import type { ProductCard as Card } from "@/lib/product";
 import {
-  applyCaption, browserCanTalk, CALL_MS, countdownAnnouncement, emptyCallLog, MAX_LINES, MIC_MESSAGES, micProblem, parseRealtimeEvent,
+  addCardGroup, applyCaption, browserCanTalk, CALL_MS, countdownAnnouncement, emptyCallLog, MAX_LINES, MIC_MESSAGES, micProblem, parseRealtimeEvent,
   readTalkStatus, REALTIME_CALLS_URL, TIME_UP, timerPhase, timeWarningEvents, toolOutputEvents, typedTextEvents, voicePanelView, waitMessage,
-  withShownProducts, type CallLog, type CallStage, type CaptionAction, type MicProblem, type OutgoingLine, type TalkStatus, type ToolCall,
+  type CallLog, type CallStage, type CaptionAction, type CardGroup, type MicProblem, type OutgoingLine, type TalkStatus, type ToolCall,
 } from "@/lib/voice";
 
 import { ProductCard } from "./product-card";
@@ -29,7 +29,6 @@ export type VoiceCallHandle = {
 };
 
 type Call = { pc: RTCPeerConnection; dc: RTCDataChannel; mic: MediaStream };
-type CardGroup = { at: number; products: Card[] };
 type EndReason = "user" | "time" | "dropped";
 
 const SNAG = "Talk hit a snag. Try again in a moment, or type your question.";
@@ -54,7 +53,7 @@ export function VoiceCall({
   const [now, setNow] = useState(() => Date.now());
   const [deadline, setDeadline] = useState(0);
   const [log, setLog] = useState<CallLog>(emptyCallLog);
-  const [cards, setCards] = useState<CardGroup[]>([]);
+  const [cards, setCards] = useState<CardGroup<Card>[]>([]);
   const [announcement, setAnnouncement] = useState("");
   const [lines, setLines] = useState<OutgoingLine[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -64,6 +63,7 @@ export function VoiceCall({
   const tokenRef = useRef<string | null>(null);
   const deadlineRef = useRef(0);
   const logRef = useRef<CallLog>(log);
+  const cardsRef = useRef<CardGroup<Card>[]>(cards);
   const queueRef = useRef<OutgoingLine[]>([]);
   const flushingRef = useRef(false);
   const respondingRef = useRef(false);
@@ -121,6 +121,14 @@ export function VoiceCall({
     }
   }
 
+  function showCards(products: Card[], source: "found" | "picked") {
+    const next = addCardGroup(cardsRef.current, logRef.current, products, source, Date.now());
+    cardsRef.current = next.groups;
+    logRef.current = next.log;
+    setCards(next.groups);
+    setNames((n) => ({ ...n, ...Object.fromEntries(products.map((p) => [p.id, p.name])) }));
+  }
+
   async function runTools(calls: ToolCall[]) {
     const call = callRef.current;
     const token = tokenRef.current;
@@ -134,14 +142,10 @@ export function VoiceCall({
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
             body: JSON.stringify({ name: c.name, arguments: c.arguments }),
           });
-          const data = (await res.json().catch(() => ({}))) as { output?: string; products?: Card[]; error?: string; reason?: string };
+          const data = (await res.json().catch(() => ({}))) as { output?: string; products?: Card[]; found?: Card[]; error?: string; reason?: string };
           if (data.reason === "ended") ended = true;
-          if (data.products?.length) {
-            const products = data.products;
-            logRef.current = withShownProducts(logRef.current, products.map((p) => p.id));
-            setCards((g) => [...g, { at: Date.now(), products }]);
-            setNames((n) => ({ ...n, ...Object.fromEntries(products.map((p) => [p.id, p.name])) }));
-          }
+          if (data.products?.length) showCards(data.products, "picked");
+          else if (data.found?.length) showCards(data.found, "found");
           return { callId: c.callId, output: data.output ?? JSON.stringify({ error: data.error ?? "That didn't work." }) };
         } catch {
           return { callId: c.callId, output: JSON.stringify({ error: "Couldn't reach the catalog." }) };
@@ -267,6 +271,7 @@ export function VoiceCall({
     setDeadline(deadlineRef.current);
     logRef.current = emptyCallLog();
     setLog(logRef.current);
+    cardsRef.current = [];
     setCards([]);
     setLines([]);
     setNames({});

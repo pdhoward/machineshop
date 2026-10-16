@@ -12,11 +12,16 @@ export { assistantInstructions, MAX_SHOWN, SKILLS, type Skill } from "./assistan
  * recommend things that exist. Read-only, like everything in lib/catalog.ts.
  */
 
+/** How many of a search's results a live call shows as cards on its own. */
+export const MAX_FOUND = 3;
+
 /**
  * Runs one skill and returns its result as text for the model. `show_products`
  * replaces `shown` with the real catalog cards for those ids (at most 6).
+ * When `found` is given (voice only), a search adds its first 3 cards to it and
+ * a lookup adds that product's card; a missing product adds nothing.
  */
-export async function runTool(name: string, input: Record<string, unknown>, shown: ProductCard[]): Promise<string> {
+export async function runTool(name: string, input: Record<string, unknown>, shown: ProductCard[], found?: ProductCard[]): Promise<string> {
   if (name === "search_products") {
     const { items, total } = await search(
       {
@@ -28,6 +33,7 @@ export async function runTool(name: string, input: Record<string, unknown>, show
       1,
       12,
     );
+    found?.push(...items.slice(0, MAX_FOUND));
     return JSON.stringify({
       total,
       products: items.map((p) => ({ id: p.id, name: p.name, price: money(p.price, p.currency), inStock: p.inStock, category: p.category, blurb: p.blurb })),
@@ -36,6 +42,10 @@ export async function runTool(name: string, input: Record<string, unknown>, show
   if (name === "get_product") {
     const p = await product(String(input.id ?? ""));
     if (!p) return JSON.stringify({ error: "No product with that id." });
+    found?.push({
+      id: p.id, name: p.name, image: p.image, blurb: p.blurb, brand: p.brand, price: p.price, currency: p.currency,
+      inStock: p.inStock, category: p.category, rating: p.rating, reviews: p.reviews,
+    });
     return JSON.stringify({
       id: p.id, name: p.name, brand: p.brand, price: money(p.price, p.currency), inStock: p.inStock, categories: p.categories,
       description: p.description.slice(0, 1200), highlights: p.highlights.slice(0, 10), specs: p.specs.slice(0, 25),

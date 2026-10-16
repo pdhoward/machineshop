@@ -13,7 +13,7 @@ const REAL = new Map([DRILL, LAMP].map((c) => [c.id, c]));
 const catalog = vi.hoisted(() => ({ search: vi.fn(), product: vi.fn(), cardsByIds: vi.fn() }));
 vi.mock("./catalog", () => catalog);
 
-import { assistantInstructions, MAX_SHOWN, runTool, SKILLS } from "./assistant-tools";
+import { assistantInstructions, MAX_FOUND, MAX_SHOWN, runTool, SKILLS } from "./assistant-tools";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -91,6 +91,63 @@ describe("runTool", () => {
     const shown: ProductCard[] = [DRILL];
     await runTool("show_products", { ids: [LAMP.id] }, shown);
     expect(shown).toEqual([LAMP]);
+  });
+
+  it("search fills found with at most its first 3 cards", async () => {
+    const more = ["c", "d", "e"].map((ch, i) => card(ch.repeat(24), `Saw ${i}`, 10));
+    catalog.search.mockResolvedValueOnce({ items: [DRILL, LAMP, ...more], total: 5 });
+    const found: ProductCard[] = [];
+    await runTool("search_products", { query: "tools" }, [], found);
+    expect(found).toEqual([DRILL, LAMP, more[0]]);
+    expect(MAX_FOUND).toBe(3);
+
+    const few: ProductCard[] = [];
+    await runTool("search_products", { query: "drill" }, [], few);
+    expect(few).toEqual([DRILL, LAMP]);
+  });
+
+  it("search with no matches fills nothing", async () => {
+    catalog.search.mockResolvedValueOnce({ items: [], total: 0 });
+    const found: ProductCard[] = [];
+    await runTool("search_products", { query: "zzz" }, [], found);
+    expect(found).toEqual([]);
+  });
+
+  it("get_product fills found with that one product's card only", async () => {
+    const found: ProductCard[] = [];
+    await runTool("get_product", { id: DRILL.id }, [], found);
+    expect(found).toEqual([DRILL]);
+  });
+
+  it("a missing product fills nothing", async () => {
+    const found: ProductCard[] = [];
+    await runTool("get_product", { id: "cccccccccccccccccccccccc" }, [], found);
+    expect(found).toEqual([]);
+  });
+
+  it("show_products and unknown skills leave found alone", async () => {
+    const found: ProductCard[] = [];
+    const shown: ProductCard[] = [];
+    await runTool("show_products", { ids: [DRILL.id] }, shown, found);
+    await runTool("place_order", {}, shown, found);
+    expect(shown).toEqual([DRILL]);
+    expect(found).toEqual([]);
+  });
+
+  it("gives exactly the same results without the found list (typed chat)", async () => {
+    for (const [name, input] of [
+      ["search_products", { query: "drill", max_price: 2000 }],
+      ["get_product", { id: DRILL.id }],
+      ["get_product", { id: "cccccccccccccccccccccccc" }],
+      ["show_products", { ids: [DRILL.id, LAMP.id] }],
+    ] as const) {
+      const shownA: ProductCard[] = [];
+      const shownB: ProductCard[] = [];
+      const without = await runTool(name, { ...input }, shownA);
+      const withList = await runTool(name, { ...input }, shownB, []);
+      expect(without).toBe(withList);
+      expect(shownA).toEqual(shownB);
+    }
   });
 
   it("refuses unknown skills without touching the catalog", async () => {
