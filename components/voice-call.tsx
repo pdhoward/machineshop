@@ -251,7 +251,7 @@ export function VoiceCall({
           codeRef.current?.focus();
           return;
         }
-        if (data.reason === "locked" || data.reason === "cooldown") setStatus(readTalkStatus(data));
+        if (data.reason === "locked") setStatus(readTalkStatus(data));
         else setNotice(data.error ?? SNAG);
         setStage("idle");
         return;
@@ -358,7 +358,7 @@ export function VoiceCall({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the handlers read refs
   }, [stage]);
 
-  // When a rest or lockout runs out, show Talk again.
+  // When a lockout runs out, show Talk again.
   const waitUntil = view.kind === "waiting" ? view.availableAt.getTime() : null;
   useEffect(() => {
     if (waitUntil === null) return;
@@ -492,13 +492,15 @@ export function VoiceCall({
       )}
 
       {view.kind === "over" && (
-        <p>
-          <strong>{TIME_UP}</strong>
-          {view.availableAt && <span className="text-fog"> {waitMessage("cooldown", view.availableAt)}</span>}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="flex-1">
+            <strong>{TIME_UP}</strong>
+          </p>
+          {talkButton}
+        </div>
       )}
 
-      {view.kind === "waiting" && <p className="text-fog">{waitMessage(view.reason, view.availableAt)}</p>}
+      {view.kind === "waiting" && <p className="text-fog">{waitMessage(view.availableAt)}</p>}
 
       {view.kind === "unavailable" && <p className="text-fog">Talk isn&apos;t available right now. You can still type your questions.</p>}
 

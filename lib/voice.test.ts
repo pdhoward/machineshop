@@ -496,17 +496,21 @@ describe("microphone", () => {
 });
 
 describe("readTalkStatus", () => {
-  it("reads available, cooldown and lockout replies", () => {
+  it("reads available and lockout replies", () => {
     expect(readTalkStatus({ available: true })).toEqual({ available: true });
-    const iso = at(3 * HOUR).toISOString();
-    expect(readTalkStatus({ available: false, reason: "cooldown", availableAt: iso })).toEqual({ available: false, reason: "cooldown", availableAt: iso });
+    const iso = at(HOUR).toISOString();
     expect(readTalkStatus({ error: "Too many", reason: "locked", availableAt: iso })).toEqual({ available: false, reason: "locked", availableAt: iso });
+  });
+
+  it("reads a well-formed cooldown reply as unavailable", () => {
+    const iso = at(3 * HOUR).toISOString();
+    expect(readTalkStatus({ available: false, reason: "cooldown", availableAt: iso })).toEqual({ available: false, reason: "unavailable" });
   });
 
   it("treats errors, missing times and junk as unavailable", () => {
     const unavailable = { available: false, reason: "unavailable" };
     expect(readTalkStatus({ error: "Talk isn't set up yet.", available: false })).toEqual(unavailable);
-    expect(readTalkStatus({ available: false, reason: "cooldown", availableAt: "soon" })).toEqual(unavailable);
+    expect(readTalkStatus({ available: false, reason: "locked", availableAt: "soon" })).toEqual(unavailable);
     expect(readTalkStatus(null)).toEqual(unavailable);
     expect(readTalkStatus("ok")).toEqual(unavailable);
   });
@@ -515,7 +519,6 @@ describe("readTalkStatus", () => {
 describe("voicePanelView", () => {
   const now = T0.getTime();
   const ready: TalkStatus = { available: true };
-  const cooldown: TalkStatus = { available: false, reason: "cooldown", availableAt: at(3 * HOUR).toISOString() };
   const locked: TalkStatus = { available: false, reason: "locked", availableAt: at(HOUR).toISOString() };
   const view = (o: Partial<Parameters<typeof voicePanelView>[0]>) =>
     voicePanelView({ status: ready, stage: "idle", remainingMs: 0, mic: null, now, ...o });
@@ -526,13 +529,12 @@ describe("voicePanelView", () => {
     expect(view({ status: { available: false, reason: "unavailable" } })).toEqual({ kind: "unavailable" });
   });
 
-  it("shows when Talk is available again during a cooldown or lockout", () => {
-    expect(view({ status: cooldown })).toEqual({ kind: "waiting", reason: "cooldown", availableAt: at(3 * HOUR) });
+  it("shows when Talk is available again during a lockout", () => {
     expect(view({ status: locked })).toEqual({ kind: "waiting", reason: "locked", availableAt: at(HOUR) });
   });
 
   it("shows Talk as ready once the wait has run out", () => {
-    expect(view({ status: cooldown, now: at(3 * HOUR).getTime() })).toEqual({ kind: "ready" });
+    expect(view({ status: locked, now: at(HOUR).getTime() })).toEqual({ kind: "ready" });
   });
 
   it("shows the code prompt and connecting stages", () => {
@@ -546,25 +548,25 @@ describe("voicePanelView", () => {
     expect(view({ stage: "live", remainingMs: 30_000 })).toEqual({ kind: "live", phase: "final", clock: "0:30" });
   });
 
-  it("shows time's up at 0:00, with the cooldown time once the server reports it", () => {
-    expect(view({ stage: "live", remainingMs: 0 })).toEqual({ kind: "over", availableAt: null });
-    expect(view({ stage: "over" })).toEqual({ kind: "over", availableAt: null });
-    expect(view({ stage: "over", status: cooldown })).toEqual({ kind: "over", availableAt: at(3 * HOUR) });
+  it("shows time's up at 0:00 with no wait time, even when locked out", () => {
+    expect(view({ stage: "live", remainingMs: 0 })).toEqual({ kind: "over" });
+    expect(view({ stage: "over" })).toEqual({ kind: "over" });
+    expect(view({ stage: "live", remainingMs: 0, status: locked })).toEqual({ kind: "over" });
+    expect(view({ stage: "over", status: locked })).toEqual({ kind: "over" });
   });
 
   it("shows a microphone problem ahead of the prompt and status, but never over a live call", () => {
     expect(view({ mic: "blocked" })).toEqual({ kind: "mic", problem: "blocked" });
     expect(view({ mic: "unsupported", stage: "prompt" })).toEqual({ kind: "mic", problem: "unsupported" });
-    expect(view({ mic: "blocked", status: cooldown })).toEqual({ kind: "mic", problem: "blocked" });
+    expect(view({ mic: "blocked", status: locked })).toEqual({ kind: "mic", problem: "blocked" });
     expect(view({ mic: "blocked", stage: "live", remainingMs: MIN })).toEqual({ kind: "live", phase: "normal", clock: "1:00" });
   });
 });
 
 describe("waitMessage", () => {
-  it("says when Talk is available again", () => {
+  it("says when Talk is available again after a lockout", () => {
     const when = new Date("2026-10-15T15:45:00.000Z");
-    expect(waitMessage("cooldown", when, "en-US", "UTC")).toMatch(/^Talk is resting after your last call\. It's available again at 3:45\sPM\.$/);
-    expect(waitMessage("locked", when, "en-US", "UTC")).toMatch(/^Too many wrong codes\. Talk is available again at 3:45\sPM\.$/);
+    expect(waitMessage(when, "en-US", "UTC")).toMatch(/^Too many wrong codes\. Talk is available again at 3:45\sPM\.$/);
   });
 });
 

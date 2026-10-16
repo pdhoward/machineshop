@@ -1,7 +1,7 @@
 import { assistantInstructions, MAX_SHOWN, SKILLS } from "./assistant-skills";
 
 /**
- * Talk mode's rules as pure functions: the access code, lockout, cooldown, the
+ * Talk mode's rules as pure functions: the access code, lockout, the
  * 5-minute timer, transcript cleanup, the configuration check and the OpenAI
  * realtime session settings, plus the Talk panel's decisions (reading live
  * call events, what to send back, which state to show) and the transcript
@@ -374,15 +374,15 @@ export function micProblem(err: unknown): MicProblem {
 /** GET /api/voice/session as the panel sees it. */
 export type TalkStatus =
   | { available: true }
-  | { available: false; reason: "cooldown" | "locked"; availableAt: string }
+  | { available: false; reason: "locked"; availableAt: string }
   | { available: false; reason: "unavailable" };
 
 /** Reads a session status (or refusal) reply, treating anything unexpected as unavailable. */
 export function readTalkStatus(data: unknown): TalkStatus {
   const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
   if (d.available === true) return { available: true };
-  if ((d.reason === "cooldown" || d.reason === "locked") && typeof d.availableAt === "string" && !Number.isNaN(Date.parse(d.availableAt))) {
-    return { available: false, reason: d.reason, availableAt: d.availableAt };
+  if (d.reason === "locked" && typeof d.availableAt === "string" && !Number.isNaN(Date.parse(d.availableAt))) {
+    return { available: false, reason: "locked", availableAt: d.availableAt };
   }
   return { available: false, reason: "unavailable" };
 }
@@ -396,8 +396,8 @@ export type PanelView =
   | { kind: "prompt" }
   | { kind: "connecting" }
   | { kind: "live"; phase: "normal" | "final"; clock: string }
-  | { kind: "over"; availableAt: Date | null }
-  | { kind: "waiting"; reason: "cooldown" | "locked"; availableAt: Date }
+  | { kind: "over" }
+  | { kind: "waiting"; reason: "locked"; availableAt: Date }
   | { kind: "mic"; problem: MicProblem }
   | { kind: "unavailable" };
 
@@ -405,36 +405,32 @@ export type PanelView =
  * Which Talk state the panel shows (`status` is null while it loads). A call in
  * progress comes first, and shows "over" the moment the timer reaches 0:00;
  * then a microphone problem, then the open code prompt, then the server's
- * status: available, resting or locked out until a time, unavailable, or
- * still checking. A wait that has run out shows Talk as ready again.
+ * status: available, locked out until a time, unavailable, or still
+ * checking. A lockout that has run out shows Talk as ready again.
  */
 export function voicePanelView(s: { status: TalkStatus | null; stage: CallStage; remainingMs: number; mic: MicProblem | null; now: number }): PanelView {
-  const waiting = s.status && !s.status.available && s.status.reason !== "unavailable" ? s.status : null;
-  const until = waiting && Date.parse(waiting.availableAt) > s.now ? new Date(waiting.availableAt) : null;
   if (s.stage === "live") {
     const phase = timerPhase(s.remainingMs);
-    return phase === "over" ? { kind: "over", availableAt: until } : { kind: "live", phase, clock: formatClock(s.remainingMs) };
+    return phase === "over" ? { kind: "over" } : { kind: "live", phase, clock: formatClock(s.remainingMs) };
   }
   if (s.stage === "connecting") return { kind: "connecting" };
-  if (s.stage === "over") return { kind: "over", availableAt: until };
+  if (s.stage === "over") return { kind: "over" };
   if (s.mic) return { kind: "mic", problem: s.mic };
   if (s.stage === "prompt") return { kind: "prompt" };
   if (!s.status) return { kind: "checking" };
   if (s.status.available) return { kind: "ready" };
-  if (!waiting) return { kind: "unavailable" };
-  return until ? { kind: "waiting", reason: waiting.reason, availableAt: until } : { kind: "ready" };
+  if (s.status.reason !== "locked") return { kind: "unavailable" };
+  const until = new Date(s.status.availableAt);
+  return until.getTime() > s.now ? { kind: "waiting", reason: "locked", availableAt: until } : { kind: "ready" };
 }
 
 /** "3:45 PM", in the shopper's own clock unless a locale and time zone are given. */
 export const formatAvailableAt = (at: Date, locale?: string, timeZone?: string) =>
   at.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", timeZone });
 
-/** The sentence the panel shows while Talk is resting or locked. */
-export function waitMessage(reason: "cooldown" | "locked", at: Date, locale?: string, timeZone?: string): string {
-  const when = formatAvailableAt(at, locale, timeZone);
-  return reason === "locked"
-    ? `Too many wrong codes. Talk is available again at ${when}.`
-    : `Talk is resting after your last call. It's available again at ${when}.`;
+/** The sentence the panel shows while Talk is locked out. */
+export function waitMessage(at: Date, locale?: string, timeZone?: string): string {
+  return `Too many wrong codes. Talk is available again at ${formatAvailableAt(at, locale, timeZone)}.`;
 }
 
 // --- Transcript window --------------------------------------------------------

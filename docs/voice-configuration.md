@@ -18,7 +18,7 @@ Set `VOICE_MONGODB_DB` to the intended dedicated voice/transcript database name,
 
 The deployed configuration was not inspected. Check the same variable in the Vercel project and the Production/Preview environment being used; local envmachine variables are not automatically installed on Vercel.
 
-When the gate is true, open **Ask the assistant**: the voice control is **Talk**, inside that panel. It is not a second floating Voice button. The browser may then show availability, cooldown, access-code or microphone states. Presence checks do not validate credentials, database access, browser support or a successful voice call.
+When the gate is true, open **Ask the assistant**: the voice control is **Talk**, inside that panel. It is not a second floating Voice button. The browser may then show availability, access-code or microphone states. Presence checks do not validate credentials, database access, browser support or a successful voice call.
 
 ## Diagnose DNS and connectivity
 
