@@ -26,7 +26,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
   return (
     <main className="mx-auto max-w-7xl px-4 sm:px-6">
       {browsing && page === 1 && (
-        <section className="flex flex-col gap-5 py-10 sm:py-14 md:flex-row md:items-end md:justify-between">
+        <section className="py-10 sm:py-14">
           <div className="max-w-2xl">
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-accent">{total.toLocaleString()} products · home & workshop</p>
             <h1 className="mt-3 text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl">
@@ -35,7 +35,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
               <span className="text-fog">Ask for anything.</span>
             </h1>
           </div>
-          <AskButton prompt="I'm looking for ideas: what would you recommend for a weekend home project?" label="Ask the shop assistant" />
         </section>
       )}
 

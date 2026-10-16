@@ -420,7 +420,7 @@ export function VoiceCall({
 
       {(view.kind === "ready" || view.kind === "mic") && (
         <div className="flex items-center gap-3">
-          <p className="flex-1 text-fog">Rather talk it through? Try a 5-minute voice call.</p>
+          <p className="flex-1 text-fog">Talk it through on a 5-minute voice call.</p>
           {talkButton}
         </div>
       )}
@@ -482,7 +482,7 @@ export function VoiceCall({
           </span>
           <div className="flex-1 leading-tight">
             <p className="font-semibold">Live with the Shop Assistant</p>
-            <p className="text-[12px] text-mist">Just talk, or type below.</p>
+            <p className="text-[12px] text-mist">Just talk. I&apos;m listening.</p>
           </div>
           <span
             role="timer"
