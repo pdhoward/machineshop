@@ -3,12 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-     "dev": "dotenv -e ../../envmachine/machineshop/development/.env.development.local -- next dev -p 3100",
+    "dev": "dotenv -e ../../envmachine/machineshop/development/.env.development.local -- next dev -p 3100",
     "dev:bare": "next dev",
     "build": "next build",
     "start": "next start -p 3100",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "diagnose:voice": "dotenv -e ../../envmachine/machineshop/development/.env.development.local -- vitest run --config vitest.voice.config.ts",
+    "diagnose:voice:runtime": "vitest run --config vitest.voice.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
