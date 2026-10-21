@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { SHIPPING_COUNTRIES, SHIPPING_FLAT_CENTS, amountCents, canBuy, checkoutParams, isTestKey } from "./checkout";
+import {
+  SHIPPING_COUNTRIES,
+  SHIPPING_FLAT_CENTS,
+  amountCents,
+  canBuy,
+  checkoutParams,
+  isTestKey,
+  orderSummary,
+  showBuyNow,
+} from "./checkout";
 
 const PRODUCT = {
   id: "6151d6a3c1f2a0b4e8d7c9f1",
@@ -115,5 +124,40 @@ describe("checkoutParams", () => {
     expect(() => checkoutParams({ ...PRODUCT, price: null }, "https://shop.test")).toThrow(/cannot be bought/);
     expect(() => checkoutParams({ ...PRODUCT, inStock: false }, "https://shop.test")).toThrow(/cannot be bought/);
     expect(() => checkoutParams({ ...PRODUCT, currency: "EUR" }, "https://shop.test")).toThrow(/cannot be bought/);
+  });
+});
+
+describe("showBuyNow", () => {
+  it("shows for a priced, in-stock, US dollar product when Stripe has a test key", () => {
+    expect(showBuyNow(PRODUCT, true)).toBe(true);
+  });
+
+  it("hides when Stripe is not ready or the product cannot be bought", () => {
+    expect(showBuyNow(PRODUCT, false)).toBe(false);
+    expect(showBuyNow({ ...PRODUCT, price: null }, true)).toBe(false);
+    expect(showBuyNow({ ...PRODUCT, inStock: false }, true)).toBe(false);
+    expect(showBuyNow({ ...PRODUCT, currency: "GBP" }, true)).toBe(false);
+  });
+});
+
+describe("orderSummary", () => {
+  const PAID = { reference: "cs_test_a1B2c3D4e5", productName: "Cordless Drill Kit", totalCents: 2994, currency: "USD", paid: true };
+
+  it("shows the product, the formatted total and the Stripe reference for a paid checkout", () => {
+    expect(orderSummary(PAID)).toEqual({ product: "Cordless Drill Kit", total: "$29.94", reference: "cs_test_a1B2c3D4e5" });
+  });
+
+  it("fills in a missing product name, total or currency", () => {
+    expect(orderSummary({ ...PAID, productName: null, totalCents: null })).toEqual({
+      product: "Your product",
+      total: "Total unavailable",
+      reference: "cs_test_a1B2c3D4e5",
+    });
+    expect(orderSummary({ ...PAID, currency: null })?.total).toBe("$29.94");
+  });
+
+  it("returns null for an unpaid or missing checkout", () => {
+    expect(orderSummary({ ...PAID, paid: false })).toBeNull();
+    expect(orderSummary(null)).toBeNull();
   });
 });

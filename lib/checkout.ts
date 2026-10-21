@@ -5,7 +5,8 @@
  * product, never from the browser.
  */
 
-import type { ProductCard } from "./product";
+import { money, type ProductCard } from "./product";
+import type { CheckoutSummary } from "./stripe";
 
 export const SHIPPING_FLAT_CENTS = 995;
 export const SHIPPING_COUNTRIES = ["US"] as const;
@@ -80,5 +81,20 @@ export function checkoutParams(p: Buyable & Pick<ProductCard, "id" | "name" | "i
     success_url: `${base}/order/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/p/${encodeURIComponent(p.id)}`,
     metadata: { product_id: p.id },
+  };
+}
+
+/** The product page shows "Buy now" only when Stripe has a test key and the product can be bought. */
+export const showBuyNow = (p: Buyable, stripeReady: boolean) => stripeReady && canBuy(p);
+
+export type OrderSummary = { product: string; total: string; reference: string };
+
+/** What the "Order received" page shows: product, total and Stripe reference. Null unless the checkout is paid. */
+export function orderSummary(c: CheckoutSummary | null): OrderSummary | null {
+  if (!c?.paid) return null;
+  return {
+    product: c.productName || "Your product",
+    total: c.totalCents == null ? "Total unavailable" : money(c.totalCents / 100, c.currency || "USD"),
+    reference: c.reference,
   };
 }
