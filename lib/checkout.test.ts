@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
   SHIPPING_COUNTRIES,
   SHIPPING_FLAT_CENTS,
+  TEST_MODE_NOTICE,
   amountCents,
   canBuy,
   checkoutParams,
@@ -159,5 +163,21 @@ describe("orderSummary", () => {
   it("returns null for an unpaid or missing checkout", () => {
     expect(orderSummary({ ...PAID, paid: false })).toBeNull();
     expect(orderSummary(null)).toBeNull();
+  });
+});
+
+describe("TEST_MODE_NOTICE", () => {
+  it("tells shoppers the store uses Stripe test mode", () => {
+    expect(TEST_MODE_NOTICE).toBe("Test store: payments use Stripe test mode. No real charges.");
+  });
+});
+
+describe(".env.example", () => {
+  const example = readFileSync(fileURLToPath(new URL("../.env.example", import.meta.url)), "utf8");
+
+  it("lists STRIPE_SECRET_KEY with no value, marked test mode only", () => {
+    expect(example).toMatch(/^STRIPE_SECRET_KEY=$/m);
+    expect(example).toMatch(/TEST MODE ONLY/);
+    expect(example).not.toMatch(/sk_(test|live)_[A-Za-z0-9]{8,}/);
   });
 });

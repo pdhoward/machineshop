@@ -8,6 +8,9 @@
 import { money, type ProductCard } from "./product";
 import type { CheckoutSummary } from "./stripe";
 
+/** The line under the product page buttons. */
+export const TEST_MODE_NOTICE = "Test store: payments use Stripe test mode. No real charges.";
+
 export const SHIPPING_FLAT_CENTS = 995;
 export const SHIPPING_COUNTRIES = ["US"] as const;
 

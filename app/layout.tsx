@@ -22,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Header />
         {children}
         <footer className="mx-auto mt-20 max-w-7xl border-t border-line px-4 py-8 text-xs text-mist sm:px-6">
-          Machine Shop is a demonstration store: browse and ask, no ordering. Product data from a 2021 public catalog crawl.
+          Machine Shop is a test store: payments use Stripe test mode, with no real charges. Product data from a 2021 public catalog crawl.
         </footer>
         <Assistant enabled={!!process.env.ANTHROPIC_API_KEY} voice={voiceConfigured() && catalogConfigured()} />
       </body>

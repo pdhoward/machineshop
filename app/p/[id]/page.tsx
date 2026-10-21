@@ -8,7 +8,7 @@ import { BuyButton } from "@/components/buy-button";
 import { Gallery } from "@/components/gallery";
 import { SetupNotice } from "@/components/setup-notice";
 import { catalogConfigured, product } from "@/lib/catalog";
-import { showBuyNow } from "@/lib/checkout";
+import { showBuyNow, TEST_MODE_NOTICE } from "@/lib/checkout";
 import { money } from "@/lib/product";
 import { stripeReady } from "@/lib/stripe";
 
@@ -87,7 +87,7 @@ export default async function ProductPage({ params }: Props) {
               label="Ask about this product"
             />
           </div>
-          <p className="text-[12.5px] text-mist">Demonstration store: browse and ask, no checkout.</p>
+          <p className="text-[12.5px] text-mist">{TEST_MODE_NOTICE}</p>
         </div>
       </div>
 
