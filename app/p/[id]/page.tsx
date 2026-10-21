@@ -4,10 +4,13 @@ import { notFound } from "next/navigation";
 import { Check, ChevronRight, Star } from "lucide-react";
 
 import { AskButton } from "@/components/assistant";
+import { BuyButton } from "@/components/buy-button";
 import { Gallery } from "@/components/gallery";
 import { SetupNotice } from "@/components/setup-notice";
 import { catalogConfigured, product } from "@/lib/catalog";
+import { showBuyNow, TEST_MODE_NOTICE } from "@/lib/checkout";
 import { money } from "@/lib/product";
+import { stripeReady } from "@/lib/stripe";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -78,12 +81,13 @@ export default async function ProductPage({ params }: Props) {
           )}
 
           <div className="flex flex-wrap gap-3">
+            {showBuyNow(p, stripeReady()) && <BuyButton productId={p.id} />}
             <AskButton
               prompt={`Tell me about "${p.name}" (product ${p.id}). Is it a good choice, and what would go well with it?`}
               label="Ask about this product"
             />
           </div>
-          <p className="text-[12.5px] text-mist">Demonstration store: browse and ask, no checkout.</p>
+          <p className="text-[12.5px] text-mist">{TEST_MODE_NOTICE}</p>
         </div>
       </div>
 

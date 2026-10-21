@@ -101,7 +101,7 @@ export default async function ProductSheetPage({ params }: Props) {
           <a href={s.link} className="break-all text-ink underline">
             {s.link}
           </a>
-          <p className="mt-1 text-mist">Machine Shop is a demonstration store: browse and ask, no ordering.</p>
+          <p className="mt-1 text-mist">Machine Shop is a test store: payments use Stripe test mode, with no real charges.</p>
         </footer>
       </article>
     </main>
