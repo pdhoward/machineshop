@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowUp, Loader2, MessageCircle, Phone, Sparkles, X } from "lucide-react";
 
 import type { ProductCard as Card } from "@/lib/product";
@@ -36,6 +37,7 @@ export function AskButton({ prompt, label }: { prompt: string; label: string }) 
 }
 
 export function Assistant({ enabled, voice = false }: { enabled: boolean; voice?: boolean }) {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // Talk mode's optional text box.
@@ -75,9 +77,10 @@ export function Assistant({ enabled, voice = false }: { enabled: boolean; voice?
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }),
       });
-      const data = (await res.json()) as { reply?: string; products?: Card[]; error?: string };
+      const data = (await res.json()) as { reply?: string; products?: Card[]; error?: string; open?: string | null };
       if (!res.ok || !data.reply) throw new Error(data.error ?? "Something went wrong.");
       setTurns([...next, { role: "assistant", content: data.reply, products: data.products }]);
+      if (data.open) router.push(data.open);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {

@@ -1,5 +1,7 @@
 import { catalogConfigured } from "@/lib/catalog";
-import { buildSessionConfig, codeMatches, voiceConfigured } from "@/lib/voice";
+import { cradleAssistantInstructions } from "@/lib/cradle/assistant";
+import { cradleConfigured } from "@/lib/cradle/book";
+import { buildSessionConfig, codeMatches, VOICE_STYLE, voiceConfigured } from "@/lib/voice";
 import { caller, clearMisses, countMiss, device, deviceCookie, lockedUntil, type Device } from "@/lib/voice-caller";
 import { voiceStore } from "@/lib/voice-store";
 import { bearerToken, signSessionToken, verifySessionToken } from "@/lib/voice-token";
@@ -36,12 +38,14 @@ const locked = (until: Date, dev: Device) =>
 
 /** A one-call pass (OpenAI realtime client secret) for the browser, or null if OpenAI refused. */
 async function requestPass(now: Date): Promise<{ value: string; expiresAt: Date } | null> {
+  // Cradle mode: the voice assistant follows the policy book in force, like the typed one.
+  const instructions = cradleConfigured() ? await cradleAssistantInstructions(VOICE_STYLE).catch(() => undefined) : undefined;
   const res = await fetch(OPENAI_CLIENT_SECRETS, {
     method: "POST",
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       expires_after: { anchor: "created_at", seconds: PASS_SECONDS },
-      session: buildSessionConfig(process.env.VOICE_MODEL!),
+      session: buildSessionConfig(process.env.VOICE_MODEL!, instructions),
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(10_000),

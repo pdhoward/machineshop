@@ -152,11 +152,11 @@ export const VOICE_STYLE =
  * the only-real-products rule, a per-reply token cap, and transcription of the
  * shopper's speech so it can be captioned and saved.
  */
-export function buildSessionConfig(model: string) {
+export function buildSessionConfig(model: string, instructions?: string) {
   return {
     type: "realtime" as const,
     model,
-    instructions: assistantInstructions(VOICE_STYLE),
+    instructions: instructions ?? assistantInstructions(VOICE_STYLE),
     output_modalities: ["audio"],
     max_output_tokens: VOICE_MAX_OUTPUT_TOKENS,
     audio: {

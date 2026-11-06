@@ -6,7 +6,7 @@
 
 /** A skill in provider-neutral form: `parameters` is a JSON Schema object. */
 export type Skill = {
-  name: "search_products" | "get_product" | "show_products";
+  name: "search_products" | "get_product" | "show_products" | "open_product";
   description: string;
   parameters: { type: "object"; properties: Record<string, unknown>; required: string[] };
 };
@@ -35,6 +35,11 @@ export const SKILLS: Skill[] = [
     name: "show_products",
     description: "Show these products to the shopper as cards, best first (max 6). Call once per reply when recommending.",
     parameters: { type: "object", properties: { ids: { type: "array", items: { type: "string" } } }, required: ["ids"] },
+  },
+  {
+    name: "open_product",
+    description: "Take the shopper to one product's page, where its Buy now button is. Use it when the shopper wants to buy or see that product. It never orders anything.",
+    parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
 ];
 

@@ -27,8 +27,8 @@ beforeEach(() => {
 });
 
 describe("skills", () => {
-  it("are exactly the three catalog skills", () => {
-    expect(SKILLS.map((s) => s.name)).toEqual(["search_products", "get_product", "show_products"]);
+  it("are the three catalog skills and open_product", () => {
+    expect(SKILLS.map((s) => s.name)).toEqual(["search_products", "get_product", "show_products", "open_product"]);
     for (const s of SKILLS) expect(s.parameters.type).toBe("object");
   });
 
@@ -156,5 +156,21 @@ describe("runTool", () => {
     expect(catalog.search).not.toHaveBeenCalled();
     expect(catalog.product).not.toHaveBeenCalled();
     expect(catalog.cardsByIds).not.toHaveBeenCalled();
+  });
+
+  // The ruling: the assistant takes the shopper to Buy now; it never places the order itself.
+  it("open_product takes the shopper to a real product's page and orders nothing", async () => {
+    const open: { url: string }[] = [];
+    const out = JSON.parse(await runTool("open_product", { id: DRILL.id }, [], undefined, open));
+    expect(open).toEqual([{ url: `/p/${DRILL.id}` }]);
+    expect(out).toMatchObject({ opened: "Cordless Drill", page: `/p/${DRILL.id}` });
+    expect(out.next).toMatch(/Buy now/);
+  });
+
+  it("open_product goes nowhere for a product that doesn't exist", async () => {
+    const open: { url: string }[] = [];
+    const out = JSON.parse(await runTool("open_product", { id: "nope" }, [], undefined, open));
+    expect(out).toEqual({ error: "No product with that id." });
+    expect(open).toEqual([]);
   });
 });

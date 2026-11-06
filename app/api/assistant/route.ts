@@ -56,6 +56,7 @@ export async function POST(request: Request) {
   // Cradle mode: the assistant's instructions come from the policy book in force, not from code.
   const system = cradleConfigured() ? await cradleAssistantInstructions(STYLE).catch(() => SYSTEM) : SYSTEM;
   const shown: ProductCard[] = [];
+  const open: { url: string }[] = [];
   const said: string[] = []; // text from every step, including what Claude says before a tool call
 
   try {
@@ -64,13 +65,13 @@ export async function POST(request: Request) {
       const toolUses = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       for (const b of res.content) if (b.type === "text" && b.text.trim()) said.push(b.text.trim());
       if (res.stop_reason !== "tool_use" || !toolUses.length) {
-        return Response.json({ reply: said.join("\n\n") || "Here's what I found.", products: shown });
+        return Response.json({ reply: said.join("\n\n") || "Here's what I found.", products: shown, open: open.at(-1)?.url ?? null });
       }
       messages.push({ role: "assistant", content: res.content });
       messages.push({
         role: "user",
         content: await Promise.all(
-          toolUses.map(async (t) => ({ type: "tool_result" as const, tool_use_id: t.id, content: await runTool(t.name, t.input as Record<string, unknown>, shown) })),
+          toolUses.map(async (t) => ({ type: "tool_result" as const, tool_use_id: t.id, content: await runTool(t.name, t.input as Record<string, unknown>, shown, undefined, open) })),
         ),
       });
     }

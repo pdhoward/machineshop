@@ -21,7 +21,7 @@ export const MAX_FOUND = 3;
  * When `found` is given (voice only), a search adds its first 3 cards to it and
  * a lookup adds that product's card; a missing product adds nothing.
  */
-export async function runTool(name: string, input: Record<string, unknown>, shown: ProductCard[], found?: ProductCard[]): Promise<string> {
+export async function runTool(name: string, input: Record<string, unknown>, shown: ProductCard[], found?: ProductCard[], open?: { url: string }[]): Promise<string> {
   if (name === "search_products") {
     const { items, total } = await search(
       {
@@ -55,6 +55,12 @@ export async function runTool(name: string, input: Record<string, unknown>, show
     const ids = Array.isArray(input.ids) ? input.ids.map(String) : [];
     shown.splice(0, shown.length, ...(await cardsByIds(ids.slice(0, MAX_SHOWN))));
     return "Shown.";
+  }
+  if (name === "open_product") {
+    const p = await product(String(input.id ?? ""));
+    if (!p) return JSON.stringify({ error: "No product with that id." });
+    open?.push({ url: `/p/${encodeURIComponent(p.id)}` });
+    return JSON.stringify({ opened: p.name, page: `/p/${p.id}`, inStock: p.inStock, price: money(p.price, p.currency), next: "The product page is open. If it shows a Buy now button, the shopper presses it to pay on Stripe's secure checkout." });
   }
   return JSON.stringify({ error: `Unknown tool ${name}` });
 }

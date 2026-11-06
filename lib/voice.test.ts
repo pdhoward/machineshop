@@ -199,8 +199,8 @@ describe("configuration check", () => {
 describe("buildSessionConfig", () => {
   const s = buildSessionConfig("test-voice-model");
 
-  it("offers only the three shared catalog skills, as functions", () => {
-    expect(s.tools.map((t) => t.name)).toEqual(["search_products", "get_product", "show_products"]);
+  it("offers only the shared skills (three catalog reads and open_product), as functions", () => {
+    expect(s.tools.map((t) => t.name)).toEqual(["search_products", "get_product", "show_products", "open_product"]);
     for (const t of s.tools) {
       expect(t.type).toBe("function");
       expect(t.parameters.type).toBe("object");

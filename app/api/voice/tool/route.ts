@@ -56,7 +56,9 @@ export async function POST(request: Request) {
 
     const shown: ProductCard[] = [];
     const found: ProductCard[] = [];
-    const output = await runTool(name, args, shown, found);
+    const open: { url: string }[] = [];
+    const output = await runTool(name, args, shown, found, open);
+    if (name === "open_product") return reply(open.length ? { output, open: open[0]!.url } : { output });
     if (name === "show_products") return reply({ output, products: shown });
     return reply(found.length ? { output, found } : { output });
   } catch (err) {

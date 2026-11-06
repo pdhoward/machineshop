@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useImperativeHandle, useRef, useState, type FormEvent, type Ref } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Loader2, Phone, ScrollText, X } from "lucide-react";
 
 import type { ProductCard as Card } from "@/lib/product";
@@ -63,6 +64,7 @@ export function VoiceCall({
   const [names, setNames] = useState<Record<string, string>>({});
   const [transcriptOpen, setTranscriptOpen] = useState(false);
 
+  const router = useRouter();
   const callRef = useRef<Call | null>(null);
   const tokenRef = useRef<string | null>(null);
   const deadlineRef = useRef(0);
@@ -134,6 +136,7 @@ export function VoiceCall({
   }
 
   async function runTools(calls: ToolCall[]) {
+    const go = (url?: string) => url && router.push(url);
     const call = callRef.current;
     const token = tokenRef.current;
     if (!call || !token) return;
@@ -146,7 +149,8 @@ export function VoiceCall({
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
             body: JSON.stringify({ name: c.name, arguments: c.arguments }),
           });
-          const data = (await res.json().catch(() => ({}))) as { output?: string; products?: Card[]; found?: Card[]; error?: string; reason?: string };
+          const data = (await res.json().catch(() => ({}))) as { output?: string; products?: Card[]; found?: Card[]; error?: string; reason?: string; open?: string };
+          go(data.open);
           if (data.reason === "ended") ended = true;
           if (data.products?.length) showCards(data.products, "picked");
           else if (data.found?.length) showCards(data.found, "found");

@@ -22,5 +22,5 @@ How you work:
 
 The store's rules (from its policy book, version ${book?.version}; follow them exactly):
 ${projection.assistant.rules.map((r) => `- ${r}`).join("\n")}
-${projection.assistant.mayDirectToBuyNow ? "- When a shopper wants to buy, help them choose, then tell them to use the Buy now button on that product's page." : "- Shoppers can't order right now; if asked to buy, say so kindly and help them choose."}`;
+${projection.assistant.mayDirectToBuyNow ? "- When a shopper wants to buy a product, call open_product with its id to take them to its page, then tell them to press Buy now there. You never take payment or shipping details and never place the order yourself." : "- Shoppers can't order right now; if asked to buy, say so kindly and help them choose. You may still call open_product to show them its page."}`;
 }
