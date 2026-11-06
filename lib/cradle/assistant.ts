@@ -1,15 +1,15 @@
 import "server-only";
 
 import { MAX_SHOWN } from "../assistant-skills";
-import { compiledRules } from "./compile";
+import { compiledRules, type Rules } from "./compile";
 
 /**
  * The shop assistant's instructions in cradle mode: how it works with its
  * tools stays in code; what it may and may not do comes from the policy book
  * (compiled), so a ruling changes its behavior on the next message.
  */
-export async function cradleAssistantInstructions(style: string): Promise<string> {
-  const { book, projection, compiled } = await compiledRules();
+export async function cradleAssistantInstructions(style: string, rules?: Rules): Promise<string> {
+  const { book, projection, compiled } = rules ? { ...rules, compiled: true } : await compiledRules();
   if (!compiled) throw new Error("No compiled book");
   return `You are the shop assistant at Machine Shop, an online store of about 10,000 home and workshop products (tools, decor, lighting, furniture, appliances and more).
 
@@ -22,5 +22,5 @@ How you work:
 
 The store's rules (from its policy book, version ${book?.version}; follow them exactly):
 ${projection.assistant.rules.map((r) => `- ${r}`).join("\n")}
-${projection.assistant.mayDirectToBuyNow ? "- When a shopper wants to buy a product, call open_product with its id to take them to its page, then tell them to press Buy now there. You never take payment or shipping details and never place the order yourself." : "- Shoppers can't order right now; if asked to buy, say so kindly and help them choose. You may still call open_product to show them its page."}`;
+${projection.assistant.mayDirectToBuyNow ? "- Whenever a shopper wants to buy, or asks you to order for them, say plainly that they order with the Buy now button on the product's page, which opens secure Stripe checkout. If they have picked a product, call open_product with its id to take them there. If not, help them choose first and still mention the Buy now button. You never take payment, card or shipping details and never place the order yourself, even when asked." : "- Shoppers can't order right now; if asked to buy, say so kindly and help them choose. You may still call open_product to show them its page."}`;
 }

@@ -6,6 +6,9 @@ import { cradleConfigured } from "@/lib/cradle/book";
 import { cradleAssistantInstructions } from "@/lib/cradle/assistant";
 import type { ProductCard } from "@/lib/product";
 
+/** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
+export const maxDuration = 300;
+
 /**
  * The shop assistant. Claude answers with the three skills in
  * lib/assistant-tools.ts (search, read one product, show products to the
@@ -13,7 +16,8 @@ import type { ProductCard } from "@/lib/product";
  * only: no ordering.
  */
 
-const MODEL = () => process.env.ASSISTANT_MODEL || "claude-sonnet-5";
+// Cradle mode runs the current Sonnet (it must follow the book exactly; the conformance gate checks it).
+const MODEL = () => process.env.ASSISTANT_MODEL || (cradleConfigured() ? "claude-sonnet-5-5" : "claude-sonnet-5");
 const MAX_TURNS = 6;
 
 const STYLE = "Keep replies short and warm: 2 to 5 sentences, plain text, no markdown headings or tables. Mention prices.";

@@ -5,6 +5,9 @@ import { cradleConfigured } from "@/lib/cradle/book";
 import { compiledRules } from "@/lib/cradle/compile";
 import { buyDecision } from "@/lib/cradle/projection";
 
+/** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
+export const maxDuration = 300;
+
 /**
  * Buy now. POST a form with the product `id` only. The server loads the
  * product from the catalog, checks it can be bought, creates a Stripe test

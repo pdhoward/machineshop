@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, SearchX } from "lucide-react";
 import { AskButton } from "@/components/assistant";
 import { ProductCard } from "@/components/product-card";
 import { CradleAnswer } from "@/components/cradle/answer";
+import { CradleMark } from "@/components/cradle/mark";
 import { SetupNotice } from "@/components/setup-notice";
 import { ask } from "@/lib/cradle/agent";
 import { cradleConfigured } from "@/lib/cradle/book";
@@ -51,6 +52,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
               <br />
               <span className="text-fog">Ask for anything.</span>
             </h1>
+            <CradleMark size="hero" />
           </div>
         </section>
       )}

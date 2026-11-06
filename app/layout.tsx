@@ -10,6 +10,9 @@ import { compiledRules } from "@/lib/cradle/compile";
 import { catalogConfigured } from "@/lib/catalog";
 import { voiceConfigured } from "@/lib/voice";
 
+/** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
+export const maxDuration = 300;
+
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 

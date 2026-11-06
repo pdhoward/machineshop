@@ -10,6 +10,8 @@ const catalog = vi.hoisted(() => ({
   listDepartments: vi.fn(),
 }));
 vi.mock("@/lib/catalog", () => catalog);
+// The Cradle mark is an async server component (cradle mode only); this test renders synchronously.
+vi.mock("@/components/cradle/mark", () => ({ CradleMark: () => null }));
 
 import { renderToString } from "react-dom/server";
 

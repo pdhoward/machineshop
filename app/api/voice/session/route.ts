@@ -6,6 +6,9 @@ import { caller, clearMisses, countMiss, device, deviceCookie, lockedUntil, type
 import { voiceStore } from "@/lib/voice-store";
 import { bearerToken, signSessionToken, verifySessionToken } from "@/lib/voice-token";
 
+/** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
+export const maxDuration = 300;
+
 /**
  * Talk mode's call session.
  * - GET: whether Talk is available now, or locked out until when.

@@ -2,8 +2,10 @@ import "server-only";
 
 /**
  * The policy book, read live from the Accelerator (cradle mode). The steward
- * changes a rule there; this store picks it up within seconds, with no code
- * change and no release. A failed read keeps the last good book.
+ * changes a rule there; this store proves the new version against its
+ * scenarios (the conformance gate) and switches to it only when every one
+ * passes. Until then the version that last passed stays in force. A failed
+ * read keeps the last good copy.
  */
 
 export type RuntimePolicy = {
@@ -28,37 +30,85 @@ export type RuntimeBook = {
   rulings: { id: string; keys: string[]; ruling: string }[];
 };
 
+export type ScenarioCheck =
+  | { kind: "buy"; product: { price: number | null; currency: string; stock: "in" | "out" | "unknown" }; expect: boolean }
+  | { kind: "search"; request: string; expect: { noOutOfStock: boolean; maxPrice: number | null; minResults: number } }
+  | { kind: "assistant"; message: string; expect: { mustCall: string[]; mustNotCall: string[]; replyMust: string } }
+  | { kind: "notice"; field: "productPage" | "footer" | "orderTestMode" | "orderLiveMode"; must: string };
+
+export type Scenario = {
+  id: string;
+  title: string;
+  policies: string[];
+  criticality: "critical" | "important" | "routine";
+  given: string;
+  when: string;
+  then: string;
+  check: ScenarioCheck;
+  status: "draft" | "approved" | "retired";
+  source: "example" | "ruling" | "crew";
+};
+
+export type CaseResult = { id: string; passed: boolean; runs: number; passes: number; detail: string; ms: number };
+export type Proof = { bookVersion: string; at: string; status: "requested" | "running" | "passed" | "failed"; results: CaseResult[]; passed: number; total: number; costUsd: number };
+
+export type RuntimeResponse = RuntimeBook & {
+  mark: { title: string; tagline: string; by: string };
+  scenarios: Scenario[];
+  inForce: { version: string; at: string; book: RuntimeBook } | null;
+  proof: Proof | null;
+};
+
+export const MARK = { title: "Running on AI", tagline: "Intelligence matters", by: "Accelerator Cradle" };
+
 export const cradleConfigured = () => !!process.env.CRADLE_API_URL && !!process.env.CRADLE_TOKEN && !!process.env.ANTHROPIC_API_KEY;
 
 const TTL_MS = 15_000;
-const g = globalThis as unknown as { cradleBook?: { at: number; book: Promise<RuntimeBook | null>; good: RuntimeBook | null } };
+const g = globalThis as unknown as { cradleBook?: { at: number; res: Promise<RuntimeResponse | null>; good: RuntimeResponse | null } };
 
-async function fetchBook(): Promise<RuntimeBook> {
-  const res = await fetch(`${process.env.CRADLE_API_URL!.replace(/\/+$/, "")}/api/runtime/book`, {
-    headers: { authorization: `Bearer ${process.env.CRADLE_TOKEN}` },
-    cache: "no-store",
-    signal: AbortSignal.timeout(6000),
-  });
+export const cradleUrl = (path: string) => `${process.env.CRADLE_API_URL!.replace(/\/+$/, "")}${path}`;
+export const cradleHeaders = () => ({ authorization: `Bearer ${process.env.CRADLE_TOKEN}`, "content-type": "application/json" });
+
+async function fetchRuntime(): Promise<RuntimeResponse> {
+  const res = await fetch(cradleUrl("/api/runtime/book"), { headers: cradleHeaders(), cache: "no-store", signal: AbortSignal.timeout(6000) });
   if (!res.ok) throw new Error(`The Accelerator answered ${res.status}`);
-  return (await res.json()) as RuntimeBook;
+  return (await res.json()) as RuntimeResponse;
 }
 
-/** The book in force (refreshed every 15 seconds), or null when it has never been read. */
-export function getBook(): Promise<RuntimeBook | null> {
+/** Everything the Accelerator says about this store's rules (refreshed every 15 seconds), or null when never read. */
+export function getRuntime(): Promise<RuntimeResponse | null> {
   if (!cradleConfigured()) return Promise.resolve(null);
   const cur = g.cradleBook;
-  if (cur && Date.now() - cur.at < TTL_MS) return cur.book;
+  if (cur && Date.now() - cur.at < TTL_MS) return cur.res;
   const good = cur?.good ?? null;
-  const book = fetchBook().then(
-    (b) => ((g.cradleBook!.good = b), b),
+  const res = fetchRuntime().then(
+    (r) => ((g.cradleBook!.good = r), r),
     (err) => {
       console.error("[cradle] book:", err instanceof Error ? err.message : err);
       return good;
     },
   );
-  g.cradleBook = { at: Date.now(), book, good };
-  return book;
+  g.cradleBook = { at: Date.now(), res, good };
+  return res;
 }
+
+/** The newest rules, as a plain book. */
+export const liveBook = (r: RuntimeResponse): RuntimeBook => ({ site: r.site, pack: r.pack, version: r.version, at: r.at, policies: r.policies, rulings: r.rulings });
+
+/**
+ * The book in force: the version that last passed the conformance gate.
+ * Before the first proof there is none, so the live book serves (the gate
+ * starts holding once a version has passed).
+ */
+export async function getBook(): Promise<RuntimeBook | null> {
+  const r = await getRuntime();
+  if (!r) return null;
+  return r.inForce?.book ?? liveBook(r);
+}
+
+/** Newer rules are waiting to be proven: never tried, asked for again by the steward, or a proof that stalled. A failed version stays held until then. */
+export const awaitingProof = (r: RuntimeResponse) =>
+  r.inForce?.version !== r.version && (!r.proof || r.proof.status === "requested" || (r.proof.status === "running" && Date.now() - Date.parse(r.proof.at) > 10 * 60_000));
 
 /** Only the policies a decision needs (the Ground step): by concept, plus the rulings that touch them. */
 export function ground(book: RuntimeBook, concepts: string[]) {

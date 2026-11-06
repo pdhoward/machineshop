@@ -6,7 +6,7 @@ import { listDepartments, search } from "../catalog";
 import { stripeReady } from "../stripe";
 import type { ProductCard } from "../product";
 import { bookText, ground } from "./book";
-import { compiledRules } from "./compile";
+import { compiledRules, type Rules } from "./compile";
 import { FAST_MODEL, jsonCall } from "./model";
 import { buyDecision, type BuyDecision, type Projection } from "./projection";
 
@@ -84,14 +84,15 @@ Return:
 - rulesApplied: the keys of the policies or rulings that shaped this decision (only keys that appear below).
 - followUp: one short suggestion of what the shopper could ask next.`;
 
-export async function ask(request: string): Promise<Answer> {
+/** `candidate` lets the conformance gate run a request on a candidate book instead of the one in force. */
+export async function ask(request: string, candidate?: Rules): Promise<Answer> {
   const t0 = Date.now();
   const stages: Stage[] = [];
   const mark = (name: Stage["name"], since: number, detail: string) => stages.push({ name, ms: Date.now() - since, detail });
 
   // Route: the request is shopping; ground on the shopping concepts.
   let t = Date.now();
-  const [{ book, projection, compiled }, departments] = await Promise.all([compiledRules(), listDepartments().catch(() => [])]);
+  const [{ book, projection, compiled }, departments] = await Promise.all([candidate ? { ...candidate, compiled: true } : compiledRules(), listDepartments().catch(() => [])]);
   mark("route", t, `shopping request · concepts: ${SHOPPING.join(", ")}`);
 
   t = Date.now();

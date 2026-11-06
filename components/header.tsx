@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { Cog } from "lucide-react";
 
+import { CradleMark } from "./cradle/mark";
 import { SearchBox } from "./search-box";
 
 export function Header() {
@@ -16,6 +17,7 @@ export function Header() {
             Machine <span className="text-accent">Shop</span>
           </span>
         </Link>
+        <CradleMark />
         <Suspense fallback={<div className="h-[42px] min-w-0 flex-1 rounded-full border border-line bg-panel sm:max-w-xl" />}>
           <SearchBox />
         </Suspense>
