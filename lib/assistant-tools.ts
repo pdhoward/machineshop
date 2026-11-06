@@ -44,7 +44,7 @@ export async function runTool(name: string, input: Record<string, unknown>, show
     if (!p) return JSON.stringify({ error: "No product with that id." });
     found?.push({
       id: p.id, name: p.name, image: p.image, blurb: p.blurb, brand: p.brand, price: p.price, currency: p.currency,
-      inStock: p.inStock, category: p.category, rating: p.rating, reviews: p.reviews,
+      inStock: p.inStock, stock: p.stock, category: p.category, rating: p.rating, reviews: p.reviews,
     });
     return JSON.stringify({
       id: p.id, name: p.name, brand: p.brand, price: money(p.price, p.currency), inStock: p.inStock, categories: p.categories,

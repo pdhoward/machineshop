@@ -4,6 +4,8 @@ import { CircleCheck, PackageSearch } from "lucide-react";
 
 import { orderSummary, type OrderSummary } from "@/lib/checkout";
 import { getCheckout, stripeReady } from "@/lib/stripe";
+import { cradleConfigured } from "@/lib/cradle/book";
+import { compiledRules } from "@/lib/cradle/compile";
 
 // Private: one shopper's order, never indexed or followed by search engines.
 export const metadata: Metadata = {
@@ -27,6 +29,10 @@ async function findOrder(sessionId: unknown): Promise<OrderSummary | null> {
 /** Where Stripe sends the shopper after payment. Shows the product, total and Stripe reference; never the address. */
 export default async function OrderReceivedPage({ searchParams }: Props) {
   const order = await findOrder((await searchParams).session_id);
+  // Cradle mode: the words come from the book; Stripe is test-only here, so the test-mode notice applies.
+  const rules = cradleConfigured() ? await compiledRules() : null;
+  const shipLine = rules?.compiled ? rules.projection.notices.orderTestMode : "Thank you. We ship your order to the address you gave Stripe.";
+  const modeLine = rules?.compiled ? null : "Test store: Stripe test mode. No real charge was made.";
 
   return (
     <main className="mx-auto max-w-lg px-4 pt-16 sm:px-6">
@@ -35,7 +41,7 @@ export default async function OrderReceivedPage({ searchParams }: Props) {
           <>
             <CircleCheck className="mx-auto size-9 text-good" />
             <h1 className="mt-4 text-2xl font-semibold tracking-tight">Order received</h1>
-            <p className="mt-2 text-[14px] text-fog">Thank you. We ship your order to the address you gave Stripe.</p>
+            <p className="mt-2 text-[14px] text-fog">{shipLine}</p>
             <dl className="mt-6 overflow-hidden rounded-xl border border-line text-left text-[14px]">
               <div className="grid grid-cols-[1fr_1.6fr] gap-4 border-b border-line px-4 py-2.5">
                 <dt className="text-fog">Product</dt>
@@ -50,7 +56,7 @@ export default async function OrderReceivedPage({ searchParams }: Props) {
                 <dd className="break-all font-mono text-[12.5px]">{order.reference}</dd>
               </div>
             </dl>
-            <p className="mt-4 text-[12.5px] text-mist">Test store: Stripe test mode. No real charge was made.</p>
+            {modeLine && <p className="mt-4 text-[12.5px] text-mist">{modeLine}</p>}
           </>
         ) : (
           <>

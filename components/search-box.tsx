@@ -29,7 +29,7 @@ export function SearchBox() {
         name="q"
         key={params.get("q") ?? ""}
         defaultValue={params.get("q") ?? ""}
-        placeholder="Search 10,000 products: drill, rug, pendant light…"
+        placeholder={process.env.NEXT_PUBLIC_CRADLE_MODE ? "Ask for anything: a cordless drill under $150 I can buy today…" : "Search 10,000 products: drill, rug, pendant light…"}
         className="w-full rounded-full border border-line bg-panel py-2.5 pl-10 pr-4 text-[14px] text-ink placeholder:text-mist focus:border-accent focus:outline-none"
       />
     </form>

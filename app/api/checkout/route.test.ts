@@ -28,7 +28,7 @@ const PRODUCT = {
   brand: null,
   price: 19.99,
   currency: "USD",
-  inStock: true,
+  inStock: true, stock: "in" as const,
   category: null,
   rating: null,
   reviews: null,

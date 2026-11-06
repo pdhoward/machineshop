@@ -9,6 +9,9 @@ import { Gallery } from "@/components/gallery";
 import { SetupNotice } from "@/components/setup-notice";
 import { catalogConfigured, product } from "@/lib/catalog";
 import { showBuyNow, TEST_MODE_NOTICE } from "@/lib/checkout";
+import { cradleConfigured } from "@/lib/cradle/book";
+import { compiledRules } from "@/lib/cradle/compile";
+import { buyDecision } from "@/lib/cradle/projection";
 import { money } from "@/lib/product";
 import { stripeReady } from "@/lib/stripe";
 
@@ -24,6 +27,11 @@ export default async function ProductPage({ params }: Props) {
   if (!catalogConfigured()) return <SetupNotice />;
   const p = await product((await params).id);
   if (!p) notFound();
+  // Cradle mode: whether it can be bought, and what the page says, come from the policy book.
+  const rules = cradleConfigured() ? await compiledRules() : null;
+  const buy = rules?.compiled ? buyDecision(p, rules.projection, stripeReady()) : null;
+  const canShowBuy = buy ? buy.ok && showBuyNow(p, stripeReady()) : showBuyNow(p, stripeReady());
+  const notice = rules?.compiled ? rules.projection.notices.productPage : TEST_MODE_NOTICE;
 
   return (
     <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-6">
@@ -81,13 +89,15 @@ export default async function ProductPage({ params }: Props) {
           )}
 
           <div className="flex flex-wrap gap-3">
-            {showBuyNow(p, stripeReady()) && <BuyButton productId={p.id} />}
+            {canShowBuy && <BuyButton productId={p.id} />}
             <AskButton
               prompt={`Tell me about "${p.name}" (product ${p.id}). Is it a good choice, and what would go well with it?`}
               label="Ask about this product"
             />
           </div>
-          <p className="text-[12.5px] text-mist">{TEST_MODE_NOTICE}</p>
+          {buy && !buy.ok && <p className="text-[13px] text-fog">{buy.reason}</p>}
+          <p className="text-[12.5px] text-mist">{notice}</p>
+          {buy && <p className="font-mono text-[11px] text-mist">Rules: {buy.policies.join(", ") || "none"} · book {rules?.book?.version}</p>}
         </div>
       </div>
 

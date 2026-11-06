@@ -24,6 +24,8 @@ export type RawProduct = {
   url?: unknown;
 };
 
+import { stockOf, type Stock } from "./cradle/projection";
+
 export type ProductCard = {
   id: string;
   name: string;
@@ -33,6 +35,8 @@ export type ProductCard = {
   price: number | null;
   currency: string;
   inStock: boolean;
+  /** The raw stock status read strictly: only an explicit TRUE or FALSE is clear (cradle mode's buy rule). */
+  stock: Stock;
   category: string | null;
   rating: number | null;
   reviews: number | null;
@@ -100,6 +104,7 @@ export function toCard(raw: RawProduct): ProductCard {
     price: num(raw.price),
     currency: str(raw.currency) || "USD",
     inStock: str(raw.in_stock).toUpperCase() !== "FALSE",
+    stock: stockOf(raw.in_stock),
     category: parseCategories(raw.breadcrumbs)[0] ?? null,
     rating: num(raw.avg_rating),
     reviews: reviews ? Math.round(reviews) : null,

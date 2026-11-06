@@ -1,6 +1,9 @@
 import { canBuy, checkoutParams } from "@/lib/checkout";
 import { catalogConfigured, product } from "@/lib/catalog";
 import { createCheckout, stripeReady } from "@/lib/stripe";
+import { cradleConfigured } from "@/lib/cradle/book";
+import { compiledRules } from "@/lib/cradle/compile";
+import { buyDecision } from "@/lib/cradle/projection";
 
 /**
  * Buy now. POST a form with the product `id` only. The server loads the
@@ -24,6 +27,12 @@ export async function POST(request: Request) {
     const p = id ? await product(id) : null;
     if (!p) return fail("We couldn't find that product.", 404);
     if (!canBuy(p)) return fail("This product can't be bought online.", 400);
+    // Cradle mode: a guard checks the call against the rules in force before the payment kernel runs.
+    if (cradleConfigured()) {
+      const { projection } = await compiledRules();
+      const d = buyDecision(p, projection, true);
+      if (!d.ok) return fail(d.reason, 400);
+    }
 
     const { url } = await createCheckout(checkoutParams(p, new URL(request.url).origin));
     return new Response(null, { status: 303, headers: { Location: url, "Cache-Control": "no-store" } });

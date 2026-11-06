@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { assistantInstructions, runTool, SKILLS } from "@/lib/assistant-tools";
 import { catalogConfigured } from "@/lib/catalog";
+import { cradleConfigured } from "@/lib/cradle/book";
+import { cradleAssistantInstructions } from "@/lib/cradle/assistant";
 import type { ProductCard } from "@/lib/product";
 
 /**
@@ -14,7 +16,8 @@ import type { ProductCard } from "@/lib/product";
 const MODEL = () => process.env.ASSISTANT_MODEL || "claude-sonnet-5";
 const MAX_TURNS = 6;
 
-const SYSTEM = assistantInstructions("Keep replies short and warm: 2 to 5 sentences, plain text, no markdown headings or tables. Mention prices.");
+const STYLE = "Keep replies short and warm: 2 to 5 sentences, plain text, no markdown headings or tables. Mention prices.";
+const SYSTEM = assistantInstructions(STYLE);
 
 const TOOLS: Anthropic.Tool[] = SKILLS.map((s) => ({ name: s.name, description: s.description, input_schema: s.parameters }));
 
@@ -50,12 +53,14 @@ export async function POST(request: Request) {
   const workspace = process.env.ANTHROPIC_WORKSPACE_ID;
   const client = new Anthropic(workspace ? { defaultHeaders: { "anthropic-workspace-id": workspace } } : {});
   const messages: Anthropic.MessageParam[] = history;
+  // Cradle mode: the assistant's instructions come from the policy book in force, not from code.
+  const system = cradleConfigured() ? await cradleAssistantInstructions(STYLE).catch(() => SYSTEM) : SYSTEM;
   const shown: ProductCard[] = [];
   const said: string[] = []; // text from every step, including what Claude says before a tool call
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
-      const res = await client.messages.create({ model: MODEL(), max_tokens: 1024, system: SYSTEM, tools: TOOLS, messages });
+      const res = await client.messages.create({ model: MODEL(), max_tokens: 1024, system, tools: TOOLS, messages });
       const toolUses = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       for (const b of res.content) if (b.type === "text" && b.text.trim()) said.push(b.text.trim());
       if (res.stop_reason !== "tool_use" || !toolUses.length) {

@@ -4,10 +4,13 @@ import { ChevronLeft, ChevronRight, SearchX } from "lucide-react";
 
 import { AskButton } from "@/components/assistant";
 import { ProductCard } from "@/components/product-card";
+import { CradleAnswer } from "@/components/cradle/answer";
 import { SetupNotice } from "@/components/setup-notice";
+import { ask } from "@/lib/cradle/agent";
+import { cradleConfigured } from "@/lib/cradle/book";
 import { catalogConfigured, listDepartments, PAGE_SIZE, search } from "@/lib/catalog";
 
-type Params = { q?: string; c?: string; page?: string };
+type Params = { q?: string; c?: string; page?: string; classic?: string };
 
 const href = (p: Params) => {
   const s = new URLSearchParams(Object.entries(p).filter((e): e is [string, string] => !!e[1]));
@@ -15,8 +18,22 @@ const href = (p: Params) => {
 };
 
 export default async function Home({ searchParams }: { searchParams: Promise<Params> }) {
-  const { q, c, page: pageParam } = await searchParams;
+  const { q, c, page: pageParam, classic } = await searchParams;
   if (!catalogConfigured()) return <SetupNotice />;
+
+  // Cradle mode: a request in the search box goes to the app agent, which carries it out on the rules in force.
+  if (cradleConfigured() && q?.trim() && !classic) {
+    const answer = await ask(q.trim()).catch((err) => {
+      console.error("[cradle] ask:", err instanceof Error ? err.message : err);
+      return null;
+    });
+    if (answer)
+      return (
+        <main className="mx-auto max-w-7xl px-4 sm:px-6">
+          <CradleAnswer a={answer} request={q.trim()} />
+        </main>
+      );
+  }
 
   const page = Math.max(1, Number(pageParam) || 1);
   const [{ items, total }, departments] = await Promise.all([search({ q, category: c }, page), listDepartments()]);

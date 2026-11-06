@@ -4,7 +4,7 @@ import type { ProductCard } from "@/lib/product";
 
 // No real database: the catalog is mocked with two real products, the voice store holds sessions in memory.
 const card = (id: string, name: string, price: number | null): ProductCard => ({
-  id, name, image: null, blurb: `${name}.`, brand: "Acme", price, currency: "USD", inStock: true, category: "Tools", rating: null, reviews: null,
+  id, name, image: null, blurb: `${name}.`, brand: "Acme", price, currency: "USD", inStock: true, stock: "in" as const, category: "Tools", rating: null, reviews: null,
 });
 const DRILL = card("aaaaaaaaaaaaaaaaaaaaaaaa", "Cordless Drill", 1299.5);
 const LAMP = card("bbbbbbbbbbbbbbbbbbbbbbbb", "Brass Lamp", 45);

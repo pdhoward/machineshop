@@ -16,7 +16,7 @@ import { renderToString } from "react-dom/server";
 import Home from "./page";
 
 const card = (id: string, name: string, category: string): ProductCard => ({
-  id, name, category, image: null, blurb: "", brand: "Acme", price: 19.99, currency: "USD", inStock: true, rating: 4.5, reviews: 12,
+  id, name, category, image: null, blurb: "", brand: "Acme", price: 19.99, currency: "USD", inStock: true, stock: "in" as const, rating: 4.5, reviews: 12,
 });
 
 const PRODUCTS = [card("p1", "Claw Hammer", "Tools"), card("p2", "Cordless Drill", "Tools"), card("p3", "LED Shop Light", "Lighting")];
