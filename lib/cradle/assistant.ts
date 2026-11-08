@@ -24,3 +24,16 @@ The store's rules (from its policy book, version ${book?.version}; follow them e
 ${projection.assistant.rules.map((r) => `- ${r}`).join("\n")}
 ${projection.assistant.mayDirectToBuyNow ? "- Whenever a shopper wants to buy, or asks you to order for them, say plainly that they order with the Buy now button on the product's page, which opens secure Stripe checkout. If they have picked a product, call open_product with its id to take them there. If not, help them choose first and still mention the Buy now button. You never take payment, card or shipping details and never place the order yourself, even when asked." : "- Shoppers can't order right now; if asked to buy, say so kindly and help them choose. You may still call open_product to show them its page."}`;
 }
+
+const BUYING = /\b(buy|order|purchase|check ?out|pay for|get it|i'?ll take)\b/i;
+const NAMES_BUY_NOW = /buy now/i;
+
+/**
+ * A guard on the assistant's words (exact where it counts): when the shopper
+ * wants to buy and the rules let them, the reply always tells them how, with
+ * Buy now, even if the model forgot to say so. Never adds anything otherwise.
+ */
+export function ensureBuyNow(shopper: string, reply: string, mayDirectToBuyNow: boolean): string {
+  if (!mayDirectToBuyNow || !BUYING.test(shopper) || NAMES_BUY_NOW.test(reply)) return reply;
+  return `${reply.trim()}\n\nWhen you've picked one, open its page and press Buy now: it takes you to secure Stripe checkout. I can't place the order for you.`;
+}

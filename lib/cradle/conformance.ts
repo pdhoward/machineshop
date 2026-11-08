@@ -5,10 +5,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { runTool, SKILLS } from "../assistant-tools";
 import type { ProductCard } from "../product";
 import { ask } from "./agent";
-import { cradleAssistantInstructions } from "./assistant";
+import { cradleAssistantInstructions, ensureBuyNow } from "./assistant";
 import { bookText, cradleHeaders, cradleUrl, getRuntime, ground, liveBook, type CaseResult, type RuntimeBook, type Scenario, type ScenarioCheck } from "./book";
 import { compileBook, type Rules } from "./compile";
-import { COMPILE_MODEL, FAST_MODEL, jsonCall } from "./model";
+import { COMPILE_MODEL, jsonCall } from "./model";
+
+/** The judge marks plain-English requirements; it must be at least as careful as the assistant it marks. */
+const JUDGE_MODEL = () => process.env.CRADLE_JUDGE_MODEL || "claude-sonnet-5-5";
 import { buyDecision, SAFE_PROJECTION } from "./projection";
 
 /**
@@ -153,15 +156,19 @@ async function assistantRun(message: string, rules: Rules): Promise<{ reply: str
       content: await Promise.all(calls.map(async (c) => (used.push(c.name), { type: "tool_result" as const, tool_use_id: c.id, content: await runTool(c.name, c.input as Record<string, unknown>, shown, undefined, []) }))),
     });
   }
-  return { reply: said.join("\n\n"), tools: [...new Set(used)], costUsd: (tokensIn * 2 + tokensOut * 10) / 1e6 };
+  return { reply: ensureBuyNow(message, said.join("\n\n"), rules.projection.assistant.mayDirectToBuyNow), tools: [...new Set(used)], costUsd: (tokensIn * 2 + tokensOut * 10) / 1e6 };
 }
 
 /** A small model judges one plain-English requirement. */
 async function judge(evidence: string, requirement: string): Promise<{ pass: boolean; why: string; costUsd: number }> {
   const r = await jsonCall<{ pass: boolean; why: string }>({
-    model: FAST_MODEL(), effort: "low", think: false, maxTokens: 300,
+    model: JUDGE_MODEL(), effort: "low", maxTokens: 2000,
     schema: { type: "object", additionalProperties: false, required: ["pass", "why"], properties: { pass: { type: "boolean" }, why: { type: "string" } } },
-    system: "You check one requirement against evidence from a store's software. Pass only if the evidence clearly meets the requirement. why: one short sentence.",
+    system: `You check one requirement against evidence from a store's software, as a careful human reviewer would.
+- Read the requirement literally. "Without X" or "never X" means the evidence must NOT do X; it is met when X is absent.
+- Judge the meaning, not the exact words: "press Buy now on the product page" meets "directs the shopper to the product's Buy now button".
+- A requirement with several parts passes only if every part is met.
+- Pass only when the evidence clearly meets the requirement. why: one short sentence naming what was or wasn't met.`,
     user: `Requirement: ${requirement}\n\nEvidence:\n${evidence}`,
   });
   return { ...r.data, costUsd: r.costUsd };

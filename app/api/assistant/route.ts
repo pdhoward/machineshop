@@ -3,7 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { assistantInstructions, runTool, SKILLS } from "@/lib/assistant-tools";
 import { catalogConfigured } from "@/lib/catalog";
 import { cradleConfigured } from "@/lib/cradle/book";
-import { cradleAssistantInstructions } from "@/lib/cradle/assistant";
+import { cradleAssistantInstructions, ensureBuyNow } from "@/lib/cradle/assistant";
+import { compiledRules } from "@/lib/cradle/compile";
 import type { ProductCard } from "@/lib/product";
 
 /** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
@@ -59,6 +60,9 @@ export async function POST(request: Request) {
   const messages: Anthropic.MessageParam[] = history;
   // Cradle mode: the assistant's instructions come from the policy book in force, not from code.
   const system = cradleConfigured() ? await cradleAssistantInstructions(STYLE).catch(() => SYSTEM) : SYSTEM;
+  // …and a guard makes sure a shopper who wants to buy is always told how (Buy now), when the rules allow it.
+  const buyNow = cradleConfigured() ? ((await compiledRules().catch(() => null))?.projection.assistant.mayDirectToBuyNow ?? false) : false;
+  const finish = (text: string) => ensureBuyNow(history.at(-1)!.content, text, buyNow);
   const shown: ProductCard[] = [];
   const open: { url: string }[] = [];
   const said: string[] = []; // text from every step, including what Claude says before a tool call
@@ -69,7 +73,7 @@ export async function POST(request: Request) {
       const toolUses = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       for (const b of res.content) if (b.type === "text" && b.text.trim()) said.push(b.text.trim());
       if (res.stop_reason !== "tool_use" || !toolUses.length) {
-        return Response.json({ reply: said.join("\n\n") || "Here's what I found.", products: shown, open: open.at(-1)?.url ?? null });
+        return Response.json({ reply: finish(said.join("\n\n") || "Here's what I found."), products: shown, open: open.at(-1)?.url ?? null });
       }
       messages.push({ role: "assistant", content: res.content });
       messages.push({
