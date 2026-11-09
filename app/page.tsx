@@ -9,6 +9,7 @@ import { CradleMark } from "@/components/cradle/mark";
 import { SetupNotice } from "@/components/setup-notice";
 import { ask } from "@/lib/cradle/agent";
 import { cradleConfigured } from "@/lib/cradle/book";
+import { reportUsage } from "@/lib/cradle/usage";
 import { catalogConfigured, listDepartments, PAGE_SIZE, search } from "@/lib/catalog";
 
 type Params = { q?: string; c?: string; page?: string; classic?: string };
@@ -28,6 +29,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
       console.error("[cradle] ask:", err instanceof Error ? err.message : err);
       return null;
     });
+    if (answer?.trace.model) reportUsage("search", { ...answer.trace, model: answer.trace.model });
     if (answer)
       return (
         <main className="mx-auto max-w-7xl px-4 sm:px-6">

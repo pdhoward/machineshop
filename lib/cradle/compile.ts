@@ -4,6 +4,7 @@ import { after } from "next/server";
 
 import { awaitingProof, bookText, getBook, getRuntime, type RuntimeBook } from "./book";
 import { COMPILE_MODEL, jsonCall, type Call } from "./model";
+import { reportUsage } from "./usage";
 import { PROJECTION_SCHEMA, SAFE_PROJECTION, type Projection } from "./projection";
 
 /**
@@ -37,6 +38,7 @@ export function compileBook(book: RuntimeBook): Promise<Entry> {
     }).then(
       ({ data, ...call }) => {
         console.log(`[cradle] compiled book ${book.version} in ${call.ms}ms · $${call.costUsd.toFixed(4)}`);
+        reportUsage("compile", call);
         return { projection: data, call };
       },
       (err) => {

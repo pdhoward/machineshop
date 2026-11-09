@@ -49,8 +49,19 @@ export async function jsonCall<T>(opts: {
   });
   if (res.stop_reason === "refusal") throw new Error("The model declined this request.");
   const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
-  const [pin, pout] = PRICES[opts.model] ?? [0, 0];
-  const tokensIn = res.usage.input_tokens + (res.usage.cache_read_input_tokens ?? 0) + (res.usage.cache_creation_input_tokens ?? 0);
-  const costUsd = (res.usage.input_tokens * pin + (res.usage.cache_read_input_tokens ?? 0) * pin * 0.1 + (res.usage.cache_creation_input_tokens ?? 0) * pin * 1.25 + res.usage.output_tokens * pout) / 1e6;
-  return { data: JSON.parse(text) as T, model: opts.model, ms: Date.now() - started, tokensIn, tokensOut: res.usage.output_tokens, costUsd };
+  return { data: JSON.parse(text) as T, model: opts.model, ms: Date.now() - started, ...costOf(opts.model, res.usage) };
+}
+
+type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
+
+/** What one call cost at list prices: cache reads at 0.1x, cache writes at 1.25x (5-minute TTL). */
+export function costOf(model: string, u: Usage): { tokensIn: number; tokensOut: number; costUsd: number } {
+  const [pin, pout] = PRICES[model] ?? [0, 0];
+  const read = u.cache_read_input_tokens ?? 0;
+  const write = u.cache_creation_input_tokens ?? 0;
+  return {
+    tokensIn: u.input_tokens + read + write,
+    tokensOut: u.output_tokens,
+    costUsd: (u.input_tokens * pin + read * pin * 0.1 + write * pin * 1.25 + u.output_tokens * pout) / 1e6,
+  };
 }

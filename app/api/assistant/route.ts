@@ -5,6 +5,8 @@ import { catalogConfigured } from "@/lib/catalog";
 import { cradleConfigured } from "@/lib/cradle/book";
 import { cradleAssistantInstructions, ensureBuyNow } from "@/lib/cradle/assistant";
 import { compiledRules } from "@/lib/cradle/compile";
+import { costOf } from "@/lib/cradle/model";
+import { reportUsage } from "@/lib/cradle/usage";
 import type { ProductCard } from "@/lib/product";
 
 /** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
@@ -66,13 +68,21 @@ export async function POST(request: Request) {
   const shown: ProductCard[] = [];
   const open: { url: string }[] = [];
   const said: string[] = []; // text from every step, including what Claude says before a tool call
+  // What this reply cost across its turns, reported to the Accelerator's Spend page (cradle mode only).
+  const spent = { model: MODEL(), tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  const report = () => spent.tokensIn && reportUsage("assistant", spent);
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       const res = await client.messages.create({ model: MODEL(), max_tokens: 1024, system, tools: TOOLS, messages });
+      const c = costOf(spent.model, res.usage);
+      spent.tokensIn += c.tokensIn;
+      spent.tokensOut += c.tokensOut;
+      spent.costUsd += c.costUsd;
       const toolUses = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       for (const b of res.content) if (b.type === "text" && b.text.trim()) said.push(b.text.trim());
       if (res.stop_reason !== "tool_use" || !toolUses.length) {
+        report();
         return Response.json({ reply: finish(said.join("\n\n") || "Here's what I found."), products: shown, open: open.at(-1)?.url ?? null });
       }
       messages.push({ role: "assistant", content: res.content });
@@ -83,11 +93,13 @@ export async function POST(request: Request) {
         ),
       });
     }
+    report();
     return Response.json({
       reply: said.join("\n\n") || "I searched a lot but couldn't settle on an answer. Could you tell me a bit more about what you need?",
       products: shown,
     });
   } catch (err) {
+    report();
     console.error("[assistant]", err);
     return Response.json({ error: "The assistant hit a snag. Try again in a moment." }, { status: 502 });
   }
