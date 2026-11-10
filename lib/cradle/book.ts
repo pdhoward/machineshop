@@ -50,7 +50,7 @@ export type Scenario = {
 };
 
 export type CaseResult = { id: string; passed: boolean; runs: number; passes: number; detail: string; ms: number };
-export type Proof = { bookVersion: string; at: string; status: "requested" | "running" | "passed" | "failed"; results: CaseResult[]; passed: number; total: number; costUsd: number };
+export type Proof = { bookVersion: string; at: string; status: "requested" | "running" | "passed" | "failed" | "blocked"; results: CaseResult[]; passed: number; total: number; costUsd: number };
 
 export type RuntimeResponse = RuntimeBook & {
   mark: { title: string; tagline: string; by: string };
@@ -108,7 +108,7 @@ export async function getBook(): Promise<RuntimeBook | null> {
 
 /** Newer rules are waiting to be proven: never tried, asked for again by the steward, or a proof that stalled. A failed version stays held until then. */
 export const awaitingProof = (r: RuntimeResponse) =>
-  r.inForce?.version !== r.version && (!r.proof || r.proof.status === "requested" || (r.proof.status === "running" && Date.now() - Date.parse(r.proof.at) > 10 * 60_000));
+  r.inForce?.version !== r.version && (!r.proof || r.proof.status === "requested" || ((r.proof.status === "running" || r.proof.status === "blocked") && Date.now() - Date.parse(r.proof.at) > 10 * 60_000));
 
 /** Only the policies a decision needs (the Ground step): by concept, plus the rulings that touch them. */
 export function ground(book: RuntimeBook, concepts: string[]) {

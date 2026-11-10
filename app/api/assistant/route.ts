@@ -5,6 +5,7 @@ import { catalogConfigured } from "@/lib/catalog";
 import { cradleConfigured } from "@/lib/cradle/book";
 import { cradleAssistantInstructions, ensureBuyNow } from "@/lib/cradle/assistant";
 import { compiledRules } from "@/lib/cradle/compile";
+import { reportFault } from "@/lib/cradle/fault";
 import { costOf } from "@/lib/cradle/model";
 import { reportUsage } from "@/lib/cradle/usage";
 import type { ProductCard } from "@/lib/product";
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     report();
+    if (cradleConfigured()) reportFault("assistant", spent.model, err); // out of credit, bad key…: the Accelerator shows it (B18)
     console.error("[assistant]", err);
     return Response.json({ error: "The assistant hit a snag. Try again in a moment." }, { status: 502 });
   }

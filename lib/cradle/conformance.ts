@@ -8,6 +8,7 @@ import { ask } from "./agent";
 import { cradleAssistantInstructions, ensureBuyNow } from "./assistant";
 import { bookText, cradleHeaders, cradleUrl, getRuntime, ground, liveBook, type CaseResult, type RuntimeBook, type Scenario, type ScenarioCheck } from "./book";
 import { compileBook, type Rules } from "./compile";
+import { faultLabel, modelFault, ModelUnavailable, reportFault } from "./fault";
 import { COMPILE_MODEL, jsonCall } from "./model";
 
 /** The judge marks plain-English requirements; it must be at least as careful as the assistant it marks. */
@@ -42,8 +43,10 @@ export async function proveLatest() {
   console.log(`[cradle] proving book ${version}`);
 
   const book = liveBook(runtime);
-  const { projection, call } = await compileBook(book);
+  const { projection, call, fault } = await compileBook(book);
   cost += call?.costUsd ?? 0;
+  // The app couldn't reach its model: nothing was judged, so no verdict (B18). The Accelerator retries later.
+  if (fault) return void (await blocked(version, faultLabel(fault)));
   if (projection === SAFE_PROJECTION) {
     await report({ action: "finish", version, costUsd: cost, results: runtime.scenarios.map((s) => ({ id: s.id, passed: false, runs: 0, passes: 0, detail: "The new rules didn't compile.", ms: 0 })) });
     return;
@@ -59,13 +62,24 @@ export async function proveLatest() {
     scenarios = [...scenarios, ...(added.data?.added ?? [])];
   }
 
-  const results = await pool(scenarios, 4, async (s) => {
-    const r = await runCase(s, rules);
-    cost += r.costUsd;
-    return r.result;
-  });
+  let results: CaseResult[];
+  try {
+    results = await pool(scenarios, 4, async (s) => {
+      const r = await runCase(s, rules);
+      cost += r.costUsd;
+      return r.result;
+    });
+  } catch (err) {
+    if (err instanceof ModelUnavailable) return void (await blocked(version, faultLabel(err.fault)));
+    throw err;
+  }
   const done = await report<{ status: string; promoted: boolean }>({ action: "finish", version, costUsd: Math.round(cost * 10000) / 10000, results });
   console.log(`[cradle] proof of ${version}: ${results.filter((r) => r.passed).length}/${results.length} passed in ${Date.now() - t0}ms · $${cost.toFixed(4)} · ${done.data?.promoted ? "in force" : "held"}`);
+}
+
+async function blocked(version: string, reason: string) {
+  console.error(`[cradle] proof of ${version} stopped: AI ${reason}`);
+  await report({ action: "blocked", version, reason }).catch(() => {});
 }
 
 async function pool<T, R>(items: T[], size: number, run: (t: T) => Promise<R>): Promise<R[]> {
@@ -89,7 +103,14 @@ async function runCase(s: Scenario, rules: Rules): Promise<{ result: CaseResult;
   const runs = runsFor(s);
   const outcomes: Run[] = [];
   for (let i = 0; i < runs; i++) {
-    outcomes.push(await once(s.check, rules).catch((err) => ({ ok: false, why: `error: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200), costUsd: 0 })));
+    outcomes.push(
+      await once(s.check, rules).catch((err) => {
+        // A model-account failure (out of credit…) isn't the rules failing: stop the whole proof without a verdict.
+        const fault = modelFault(err);
+        if (fault) throw new ModelUnavailable(fault);
+        return { ok: false, why: `error: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200), costUsd: 0 };
+      }),
+    );
   }
   const passes = outcomes.filter((o) => o.ok).length;
   const failed = outcomes.find((o) => !o.ok);
@@ -144,7 +165,10 @@ async function assistantRun(message: string, rules: Rules): Promise<{ reply: str
   let tokensOut = 0;
   const model = process.env.ASSISTANT_MODEL || "claude-sonnet-5-5";
   for (let turn = 0; turn < 6; turn++) {
-    const res = await client.messages.create({ model, max_tokens: 1024, system, tools, messages });
+    const res = await client.messages.create({ model, max_tokens: 1024, system, tools, messages }).catch((err: unknown) => {
+      reportFault("proof", model, err);
+      throw err;
+    });
     tokensIn += res.usage.input_tokens;
     tokensOut += res.usage.output_tokens;
     for (const b of res.content) if (b.type === "text" && b.text.trim()) said.push(b.text.trim());
@@ -162,7 +186,7 @@ async function assistantRun(message: string, rules: Rules): Promise<{ reply: str
 /** A small model judges one plain-English requirement. */
 async function judge(evidence: string, requirement: string): Promise<{ pass: boolean; why: string; costUsd: number }> {
   const r = await jsonCall<{ pass: boolean; why: string }>({
-    model: JUDGE_MODEL(), effort: "low", maxTokens: 2000,
+    role: "proof", model: JUDGE_MODEL(), effort: "low", maxTokens: 2000,
     schema: { type: "object", additionalProperties: false, required: ["pass", "why"], properties: { pass: { type: "boolean" }, why: { type: "string" } } },
     system: `You check one requirement against evidence from a store's software, as a careful human reviewer would.
 - Read the requirement literally. "Without X" or "never X" means the evidence must NOT do X; it is met when X is absent.
@@ -226,7 +250,7 @@ async function draftScenarios(book: RuntimeBook, existing: Scenario[]): Promise<
   if (enough && !uncoveredRulings.length) return { drafts: [], costUsd: 0 };
   const want = enough ? Math.min(6, uncoveredRulings.length * 2) : 10;
   const r = await jsonCall<{ scenarios: Flat[] }>({
-    model: COMPILE_MODEL(), effort: "medium", maxTokens: 12000, schema: DRAFT_SCHEMA, system: DRAFT_SYSTEM,
+    role: "proof", model: COMPILE_MODEL(), effort: "medium", maxTokens: 12000, schema: DRAFT_SCHEMA, system: DRAFT_SYSTEM,
     user: `The store's shopping rules:\n${bookText(part)}\n\nScenarios already in the suite (don't repeat them):\n${existing.map((x) => `- ${x.title} [${x.policies.join(", ")}]`).join("\n") || "(none)"}\n\n${uncoveredRulings.length ? `Rulings with no scenario yet:\n${uncoveredRulings.map((u) => `- ${u.keys.join(", ")}: ${u.ruling}`).join("\n")}\n\n` : ""}Write ${want} new scenarios.`,
   });
   const keys = new Set([...part.policies.map((p) => p.key), ...part.rulings.flatMap((x) => x.keys)]);

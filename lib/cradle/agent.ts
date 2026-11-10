@@ -105,7 +105,7 @@ export async function ask(request: string, candidate?: Rules): Promise<Answer> {
 
   t = Date.now();
   const call = await jsonCall<Plan>({
-    model: FAST_MODEL(), effort: "low", think: false, maxTokens: 1200, schema: PLAN_SCHEMA,
+    role: "search", model: FAST_MODEL(), effort: "low", think: false, maxTokens: 1200, schema: PLAN_SCHEMA,
     system: `${SYSTEM(departments.map((d) => d.name).join(", "))}\n\nThe store's rules in force:\n${bookText(part) || "(none available: be cautious)"}`,
     user: request.slice(0, 500),
   });

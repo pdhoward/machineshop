@@ -2,6 +2,8 @@ import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import { reportFault } from "./fault";
+
 /**
  * The app agent's model calls (cradle mode). Every call returns JSON that
  * matches a schema (structured outputs), plus what it cost and how long it
@@ -37,16 +39,23 @@ export async function jsonCall<T>(opts: {
   maxTokens?: number;
   /** Fast calls skip thinking (allowed at effort high or below on Haiku). */
   think?: boolean;
+  /** What the call is for, named in model-health reports (search, compile, proof). */
+  role: string;
 }): Promise<Call<T>> {
   const started = Date.now();
-  const res = await anthropic().messages.create({
-    model: opts.model,
-    max_tokens: opts.maxTokens ?? 4000,
-    ...(opts.think === false ? { thinking: { type: "disabled" as const } } : {}),
-    system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: opts.user }],
-    output_config: { effort: opts.effort, format: { type: "json_schema", schema: opts.schema } },
-  });
+  const res = await anthropic()
+    .messages.create({
+      model: opts.model,
+      max_tokens: opts.maxTokens ?? 4000,
+      ...(opts.think === false ? { thinking: { type: "disabled" as const } } : {}),
+      system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: opts.user }],
+      output_config: { effort: opts.effort, format: { type: "json_schema", schema: opts.schema } },
+    })
+    .catch((err: unknown) => {
+      reportFault(opts.role, opts.model, err); // out of credit, bad key…: the Accelerator shows it (B18)
+      throw err;
+    });
   if (res.stop_reason === "refusal") throw new Error("The model declined this request.");
   const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   return { data: JSON.parse(text) as T, model: opts.model, ms: Date.now() - started, ...costOf(opts.model, res.usage) };

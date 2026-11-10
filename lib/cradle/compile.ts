@@ -3,6 +3,7 @@ import "server-only";
 import { after } from "next/server";
 
 import { awaitingProof, bookText, getBook, getRuntime, type RuntimeBook } from "./book";
+import { modelFault, type Fault } from "./fault";
 import { COMPILE_MODEL, jsonCall, type Call } from "./model";
 import { reportUsage } from "./usage";
 import { PROJECTION_SCHEMA, SAFE_PROJECTION, type Projection } from "./projection";
@@ -24,7 +25,8 @@ Rules for reading the book:
 - assistant.rules are instructions to the shop assistant: short imperative lines, taken from the book.
 - summary: two sentences on what the store does under these rules.`;
 
-type Entry = { projection: Projection; call: Omit<Call<unknown>, "data"> | null };
+/** fault: the compile failed because the app couldn't reach its model (out of credit…), not because of the book (B18). */
+type Entry = { projection: Projection; call: Omit<Call<unknown>, "data"> | null; fault?: Fault | null };
 const g = globalThis as unknown as { cradleProjection?: Map<string, Promise<Entry>>; cradleProving?: Set<string> };
 
 /** One book version's projections (memoized; a failed compile is retried on the next request). */
@@ -33,18 +35,18 @@ export function compileBook(book: RuntimeBook): Promise<Entry> {
   let entry = g.cradleProjection.get(book.version);
   if (!entry) {
     entry = jsonCall<Projection>({
-      model: COMPILE_MODEL(), effort: "medium", system: SYSTEM, schema: PROJECTION_SCHEMA as unknown as Record<string, unknown>, maxTokens: 8000,
+      role: "compile", model: COMPILE_MODEL(), effort: "medium", system: SYSTEM, schema: PROJECTION_SCHEMA as unknown as Record<string, unknown>, maxTokens: 8000,
       user: `The policy book (version ${book.version}):\n\n${bookText(book)}`,
     }).then(
       ({ data, ...call }) => {
         console.log(`[cradle] compiled book ${book.version} in ${call.ms}ms · $${call.costUsd.toFixed(4)}`);
         reportUsage("compile", call);
-        return { projection: data, call };
+        return { projection: data, call, fault: null };
       },
       (err) => {
         console.error("[cradle] compile:", err instanceof Error ? err.message : err);
         g.cradleProjection!.delete(book.version);
-        return { projection: SAFE_PROJECTION, call: null };
+        return { projection: SAFE_PROJECTION, call: null, fault: modelFault(err) };
       },
     );
     g.cradleProjection.set(book.version, entry);
