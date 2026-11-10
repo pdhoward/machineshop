@@ -68,9 +68,12 @@ export type Trace = {
   model: string | null;
   tokensIn: number;
   tokensOut: number;
+  /** The decide call's cost; a compile this request waited for is reported apart (it serves every later request). */
   costUsd: number;
   totalMs: number;
   rules: { key: string; text: string }[];
+  /** This request compiled the rules first (the first request on a new version or a fresh server instance). */
+  compile: { model: string; ms: number; costUsd: number } | null;
 };
 export type Item = ProductCard & { buy: BuyDecision };
 export type Answer = { plan: Plan; items: Item[]; total: number; trace: Trace; projection: Projection };
@@ -96,8 +99,22 @@ export async function ask(request: string, candidate?: Rules): Promise<Answer> {
 
   // Route: the request is shopping; ground on the shopping concepts.
   let t = Date.now();
-  const [{ book, projection, compiled }, departments] = await Promise.all([candidate ? { ...candidate, compiled: true } : compiledRules(), listDepartments().catch(() => [])]);
-  mark("route", t, `shopping request · concepts: ${SHOPPING.join(", ")}`);
+  // Timed apart, so the Why drawer shows where the wait is: the rules (from the Accelerator, compiled) or the departments (the catalog).
+  const since = t;
+  let rulesMs = 0;
+  let departmentsMs = 0;
+  const [{ book, projection, compiled, compiledNow, call: compileCall }, departments] = await Promise.all([
+    (candidate ? Promise.resolve({ ...candidate, compiled: true, compiledNow: false, call: null }) : compiledRules()).then((r) => ((rulesMs = Date.now() - since), r)),
+    listDepartments()
+      .catch(() => [])
+      .then((d) => ((departmentsMs = Date.now() - since), d)),
+  ]);
+  const compile = compiledNow && compileCall ? { model: compileCall.model, ms: compileCall.ms, costUsd: compileCall.costUsd } : null;
+  mark(
+    "route",
+    t,
+    `shopping request · concepts: ${SHOPPING.join(", ")} · rules ${rulesMs} ms${compile ? ` (compiled them first: ${compile.model}, ${(compile.ms / 1000).toFixed(1)} s, $${compile.costUsd.toFixed(4)})` : ""} · departments ${departmentsMs} ms`,
+  );
 
   t = Date.now();
   const part = book ? ground(book, SHOPPING) : { policies: [], rulings: [] };
@@ -144,7 +161,7 @@ export async function ask(request: string, candidate?: Rules): Promise<Answer> {
 
   const trace: Trace = {
     id: randomUUID().slice(0, 8), at: new Date().toISOString(), request, bookVersion: book?.version ?? null, compiled, stages, model: call.model,
-    tokensIn: call.tokensIn, tokensOut: call.tokensOut, costUsd: call.costUsd, totalMs: Date.now() - t0, rules,
+    tokensIn: call.tokensIn, tokensOut: call.tokensOut, costUsd: call.costUsd, totalMs: Date.now() - t0, rules, compile,
   };
   console.log(`[cradle] ${JSON.stringify({ id: trace.id, request, plan: { intent: plan.intent, query: plan.query, category: plan.category }, total, ms: trace.totalMs, cost: trace.costUsd, rules: rules.map((r) => r.key), book: trace.bookVersion })}`);
   return { plan, items: decided, total, trace, projection };

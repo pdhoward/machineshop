@@ -1,5 +1,7 @@
 import "server-only";
 
+import { after } from "next/server";
+
 /**
  * The policy book, read live from the Accelerator (cradle mode). The steward
  * changes a rule there; this store proves the new version against its
@@ -64,7 +66,8 @@ export const MARK = { title: "Running on AI", tagline: "Intelligence matters", b
 export const cradleConfigured = () => !!process.env.CRADLE_API_URL && !!process.env.CRADLE_TOKEN && !!process.env.ANTHROPIC_API_KEY;
 
 const TTL_MS = 15_000;
-const g = globalThis as unknown as { cradleBook?: { at: number; res: Promise<RuntimeResponse | null>; good: RuntimeResponse | null } };
+type Cache = { at: number; res: Promise<RuntimeResponse | null>; good: RuntimeResponse | null; refreshing?: boolean };
+const g = globalThis as unknown as { cradleBook?: Cache };
 
 export const cradleUrl = (path: string) => `${process.env.CRADLE_API_URL!.replace(/\/+$/, "")}${path}`;
 export const cradleHeaders = () => ({ authorization: `Bearer ${process.env.CRADLE_TOKEN}`, "content-type": "application/json" });
@@ -75,17 +78,48 @@ async function fetchRuntime(): Promise<RuntimeResponse> {
   return (await res.json()) as RuntimeResponse;
 }
 
-/** Everything the Accelerator says about this store's rules (refreshed every 15 seconds), or null when never read. */
-export function getRuntime(): Promise<RuntimeResponse | null> {
+/**
+ * Everything the Accelerator says about this store's rules, or null when never read.
+ * Stale-while-revalidate (B20): within 15 seconds the cached copy serves; after
+ * that the last good copy still serves at once and a fresh one is fetched in the
+ * background (after the response), so a shopper never waits on the Accelerator
+ * except on an instance's very first read. `fresh` waits for a new copy (the
+ * conformance gate must prove the newest version, not the one it last saw).
+ */
+export function getRuntime(opts?: { fresh?: boolean }): Promise<RuntimeResponse | null> {
   if (!cradleConfigured()) return Promise.resolve(null);
   const cur = g.cradleBook;
-  if (cur && Date.now() - cur.at < TTL_MS) return cur.res;
+  if (cur && !opts?.fresh && Date.now() - cur.at < TTL_MS) return cur.res;
+  if (cur?.good && !opts?.fresh) {
+    if (!cur.refreshing) {
+      cur.refreshing = true;
+      // The cached copy stays in place until the new one has arrived, so no request waits on the refresh.
+      const refresh = () =>
+        fetchRuntime().then(
+          (r) => void (g.cradleBook = { at: Date.now(), res: Promise.resolve(r), good: r }),
+          (err) => {
+            console.error("[cradle] book:", err instanceof Error ? err.message : err);
+            Object.assign(cur, { at: Date.now(), refreshing: false }); // unreachable: keep the last good rules, try again in 15 s
+          },
+        );
+      try {
+        after(refresh); // inside a request: keeps the refresh alive past the response
+      } catch {
+        void refresh();
+      }
+    }
+    return Promise.resolve(cur.good);
+  }
+  // An instance's first read (or a fresh one): wait for it.
   const good = cur?.good ?? null;
   const res = fetchRuntime().then(
-    (r) => ((g.cradleBook!.good = r), r),
+    (r) => {
+      if (g.cradleBook?.res === res) g.cradleBook.good = r;
+      return r;
+    },
     (err) => {
       console.error("[cradle] book:", err instanceof Error ? err.message : err);
-      return good;
+      return good; // the Accelerator is unreachable: keep serving the last good rules
     },
   );
   g.cradleBook = { at: Date.now(), res, good };

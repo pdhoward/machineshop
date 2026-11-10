@@ -78,11 +78,42 @@ export async function cardsByIds(ids: string[]) {
 }
 
 // Top-level departments (first breadcrumb) with counts; changes rarely, so cached for 30 minutes.
-let departments: { at: number; list: Promise<{ name: string; count: number }[]> } | null = null;
+type Department = { name: string; count: number };
+let departments: { at: number; list: Promise<Department[]>; good?: Department[]; refreshing?: boolean } | null = null;
 
-export function listDepartments() {
-  if (departments && Date.now() - departments.at < 30 * 60_000) return departments.list;
-  const list = products().then((col) =>
+/**
+ * The top departments (an aggregation over the whole catalog). Cached for 30
+ * minutes; after that the last list still serves at once while a fresh one is
+ * computed (stale-while-revalidate), so no request waits on the aggregation
+ * except an instance's very first.
+ */
+export function listDepartments(): Promise<Department[]> {
+  const cur = departments;
+  if (cur && Date.now() - cur.at < 30 * 60_000) return cur.list;
+  if (cur?.good) {
+    if (!cur.refreshing) {
+      cur.refreshing = true;
+      // The old list stays in place until the new one has arrived, so no request waits on the aggregation.
+      aggregateDepartments().then(
+        (l) => void (departments = { at: Date.now(), list: Promise.resolve(l), good: l }),
+        () => Object.assign(cur, { at: Date.now() - 25 * 60_000, refreshing: false }), // try again in 5 minutes
+      );
+    }
+    return Promise.resolve(cur.good);
+  }
+  // An instance's first read: wait for it.
+  const list = aggregateDepartments();
+  const entry: NonNullable<typeof departments> = { at: Date.now(), list };
+  departments = entry;
+  list.then(
+    (l) => (entry.good = l),
+    () => departments === entry && (departments = null),
+  );
+  return list;
+}
+
+function aggregateDepartments(): Promise<Department[]> {
+  return products().then((col) =>
     col
       .aggregate<{ _id: string; count: number }>([
         { $match: { breadcrumbs: { $type: "string", $ne: "" } } },
@@ -93,7 +124,4 @@ export function listDepartments() {
       .toArray()
       .then((rows) => rows.filter((r) => r._id).map((r) => ({ name: r._id, count: r.count }))),
   );
-  departments = { at: Date.now(), list };
-  list.catch(() => (departments = null));
-  return list;
 }

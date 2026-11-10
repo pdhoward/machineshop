@@ -12,6 +12,7 @@ import type { Trace } from "@/lib/cradle/agent";
  */
 export function Why({ trace }: { trace: Trace }) {
   const [open, setOpen] = useState(false);
+  const total = trace.costUsd + (trace.compile?.costUsd ?? 0);
   return (
     <>
       <button
@@ -19,7 +20,7 @@ export function Why({ trace }: { trace: Trace }) {
         onClick={() => setOpen(true)}
         className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel px-3 py-1.5 text-[12.5px] font-medium text-fog transition-colors hover:border-accent hover:text-accent"
       >
-        <ScrollText className="size-3.5" /> Why? · {(trace.totalMs / 1000).toFixed(1)}s · ${trace.costUsd.toFixed(4)}
+        <ScrollText className="size-3.5" /> Why? · {(trace.totalMs / 1000).toFixed(1)}s · ${total.toFixed(4)}
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setOpen(false)}>
@@ -54,6 +55,12 @@ export function Why({ trace }: { trace: Trace }) {
                 ["Model", trace.model ?? "none"],
                 ["Tokens", `${trace.tokensIn.toLocaleString()} in · ${trace.tokensOut.toLocaleString()} out`],
                 ["Model cost", `$${trace.costUsd.toFixed(5)}`],
+                ...(trace.compile
+                  ? [
+                      ["Rule compile", `$${trace.compile.costUsd.toFixed(4)} · ${(trace.compile.ms / 1000).toFixed(1)} s`],
+                      ["Compile model", trace.compile.model],
+                    ]
+                  : []),
               ].map(([k, v]) => (
                 <div key={k} className="rounded-lg border border-line px-3 py-2">
                   <dt className="text-mist">{k}</dt>
@@ -76,6 +83,11 @@ export function Why({ trace }: { trace: Trace }) {
               <p className="mt-2 text-[12.5px] text-mist">No specific rule applied.</p>
             )}
             <p className="mt-5 text-[11.5px] leading-relaxed text-mist">
+              {trace.compile && (
+                <>
+                  This request compiled the rules into the store&apos;s settings first, which happens once per rules version on each server, so it paid for and waited on that. Later requests reuse it.{" "}
+                </>
+              )}
               These rules live in the store&apos;s policy book on the Accelerator. When the owner changes one, this store follows it within seconds. No code changes, no release.
             </p>
           </aside>

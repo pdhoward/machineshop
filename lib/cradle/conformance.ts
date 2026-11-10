@@ -33,7 +33,7 @@ async function report<T>(body: unknown): Promise<{ ok: boolean; status: number; 
 
 /** Prove the newest version of the book, if it is waiting. */
 export async function proveLatest() {
-  const runtime = await getRuntime();
+  const runtime = await getRuntime({ fresh: true }); // the newest version, not the cached one
   if (!runtime || runtime.inForce?.version === runtime.version) return;
   const version = runtime.version;
   const started = await report({ action: "start", version });

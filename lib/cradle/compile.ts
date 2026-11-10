@@ -54,16 +54,18 @@ export function compileBook(book: RuntimeBook): Promise<Entry> {
   return entry;
 }
 
-export type Compiled = { book: RuntimeBook | null; projection: Projection; call: Entry["call"]; compiled: boolean };
+/** compiledNow: this request is the one that compiled the rules (it waited for it, and paid for it). */
+export type Compiled = { book: RuntimeBook | null; projection: Projection; call: Entry["call"]; compiled: boolean; compiledNow: boolean };
 export type Rules = { book: RuntimeBook; projection: Projection };
 
 /** The rules in force, compiled. When newer rules are waiting, this request also starts proving them (in the background). */
 export async function compiledRules(): Promise<Compiled> {
   const [book, runtime] = await Promise.all([getBook(), getRuntime()]);
   if (runtime && awaitingProof(runtime)) startProving(runtime.version);
-  if (!book) return { book: null, projection: SAFE_PROJECTION, call: null, compiled: false };
+  if (!book) return { book: null, projection: SAFE_PROJECTION, call: null, compiled: false, compiledNow: false };
+  const first = !g.cradleProjection?.has(book.version);
   const { projection, call } = await compileBook(book);
-  return { book, projection, call, compiled: projection !== SAFE_PROJECTION };
+  return { book, projection, call, compiled: projection !== SAFE_PROJECTION, compiledNow: first && !!call };
 }
 
 /** Run the conformance gate on a new version after this response is sent (one proof per version per server instance; the Accelerator refuses duplicates across instances). */
