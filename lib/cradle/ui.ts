@@ -1,4 +1,4 @@
-import type { Item, Plan } from "./agent";
+import type { Item, Plan, Searched } from "./agent";
 import { money } from "../product";
 
 /**
@@ -40,7 +40,14 @@ export const CATALOG = {
     description: "The search the store ran: keyword, department, price range, stock, and the number of matches.",
     bound: false,
     expresses: ["product", "price", "inventory"],
-    props: { chips: { type: "string[]" }, total: { type: "number", optional: true }, more: { type: "boolean", optional: true }, classicHref: { type: "string", optional: true } },
+    props: {
+      chips: { type: "string[]" },
+      total: { type: "number", optional: true },
+      more: { type: "boolean", optional: true },
+      classicHref: { type: "string", optional: true },
+      /** Said plainly when the store substituted: other keywords, or one product where a comparison was asked for. */
+      note: { type: "string", optional: true },
+    },
   },
   Products: {
     description: "Products as cards with their buy decision. Prices and stock come from the catalog kernel.",
@@ -65,7 +72,7 @@ export type ComponentType = keyof typeof CATALOG;
 export type PropsOf = {
   Answer: Record<string, never>;
   Heading: { request: string; headline?: string; explanation?: string };
-  Filters: { chips: string[]; total?: number; more?: boolean; classicHref?: string };
+  Filters: { chips: string[]; total?: number; more?: boolean; classicHref?: string; note?: string };
   Products: { layout: "grid" | "single"; ids: string[] };
   Compare: { ids: string[] };
   Skeleton: { layout: Layout; count: number };
@@ -86,7 +93,7 @@ export type View = {
   items?: Item[];
   total?: number;
   /** The keywords and department the kernel actually searched (after any broadening). */
-  searched?: { query: string; category: string };
+  searched?: Searched;
   hideOutOfStock?: boolean;
   /** The answer is final: no more fields or results are coming. */
   done: boolean;
@@ -115,6 +122,11 @@ export function buildSpec(v: View): Spec {
       (plan.inStockOnly || v.hideOutOfStock) && "in stock",
     ].filter((c): c is string => !!c);
     const classic = new URLSearchParams({ q: query, ...(category ? { c: category } : {}), classic: "1" });
+    const lone = layout === "compare" && v.items?.length === 1;
+    const notes = [
+      v.searched?.broadenedFrom && v.items?.length && `No exact match for “${v.searched.broadenedFrom}”, so these are the closest the catalog has, for “${query}”.`,
+      lone && "Only one product matched, so there is nothing to compare it with.",
+    ].filter((n): n is string => !!n);
     add(
       "filters",
       el("Filters", {
@@ -122,6 +134,7 @@ export function buildSpec(v: View): Spec {
         ...(v.total != null && { total: v.total }),
         ...(v.items && v.total != null && { more: v.total > v.items.length }),
         classicHref: `/?${classic}`,
+        ...(notes.length && { note: notes.join(" ") }),
       }),
     );
   }
@@ -130,13 +143,14 @@ export function buildSpec(v: View): Spec {
     add("body", el("Skeleton", { layout, count: layout === "single" ? 1 : layout === "compare" ? 3 : 8 }));
   } else if (!v.items.length) {
     add("body", el("Empty", { message: "Nothing in the catalog matches that under the store's rules. Try different words." }));
-  } else if (layout === "compare") {
+  } else if (layout === "compare" && v.items.length > 1) {
     add("body", el("Compare", { ids: v.items.map((p) => p.id) }));
   } else {
-    add("body", el("Products", { layout, ids: v.items.map((p) => p.id) }));
+    add("body", el("Products", { layout: layout === "compare" ? "single" : layout, ids: v.items.map((p) => p.id) }));
   }
 
-  if (v.done && plan.followUp) add("followUp", el("FollowUp", { text: plan.followUp }));
+  // A follow-up is a request the shopper can send as is; one that talks to the shopper ("Would you like…") is dropped.
+  if (v.done && plan.followUp && !/\byou(r|'d|'re)?\b/i.test(plan.followUp)) add("followUp", el("FollowUp", { text: plan.followUp }));
 
   elements.answer = el("Answer", {}, children);
   return { root: "answer", elements };
@@ -191,7 +205,10 @@ export function specText(spec: Spec, data: SpecData): string {
       if (p.headline) lines.push(p.headline);
       if (p.explanation) lines.push(p.explanation);
     },
-    Filters: (p) => p.total != null && lines.push(`${p.total.toLocaleString("en-US")} ${p.total === 1 ? "match" : "matches"}.`),
+    Filters: (p) => {
+      if (p.note) lines.push(p.note);
+      if (p.total != null) lines.push(`${p.total.toLocaleString("en-US")} ${p.total === 1 ? "match" : "matches"}.`);
+    },
     Products: (p) => p.ids.forEach((id, i) => data.products[id] && lines.push(product(data.products[id], i + 1))),
     Compare: (p) => p.ids.forEach((id, i) => data.products[id] && lines.push(product(data.products[id], i + 1))),
     Skeleton: () => lines.push("Looking…"),

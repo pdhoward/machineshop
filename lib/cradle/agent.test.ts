@@ -100,6 +100,20 @@ describe("ask, streamed", () => {
     expect(a.trace.stages.find((s) => s.name === "execute")?.detail).toContain("broadened after a miss");
   });
 
+  it("for a comparison, prefers the first keywords that find two products, and says so when it substituted", async () => {
+    streamingModel({ ...PLAN, layout: "compare", query: "shop vac", category: "", alternatives: ["vacuum hose", "wet dry vac"] }, []);
+    mocks.search.mockImplementation(async (q: { q: string }) =>
+      q.q === "shop vac" ? { items: [], total: 0 } : q.q === "vacuum hose" ? { items: [card("h")], total: 1 } : { items: [card("v1"), card("v2")], total: 2 },
+    );
+    const { ask } = await import("./agent");
+    const events: AnswerEvent[] = [];
+    const a = await ask("compare shop vacs", undefined, (e) => events.push(e));
+    expect(a.items.map((p) => p.id)).toEqual(["v1", "v2"]);
+    expect(events.find((e) => e.type === "items")).toMatchObject({ searched: { query: "wet dry vac", broadenedFrom: "shop vac" } });
+    expect(a.spec.elements.body).toMatchObject({ type: "Compare" });
+    expect((a.spec.elements.filters!.props as { note?: string }).note).toContain("No exact match for “shop vac”");
+  });
+
   it("works with no listener (the conformance gate)", async () => {
     streamingModel(PLAN, []);
     mocks.search.mockResolvedValue({ items: [card("a")], total: 1 });

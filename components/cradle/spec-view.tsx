@@ -46,7 +46,13 @@ const REGISTRY: { [K in ComponentType]: Render<K> } = {
   ),
 
   Filters: ({ props }) => (
-    <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5 text-[12.5px]">
+    <>
+      {props.note && (
+        <p className="mt-3 rounded-xl border border-line bg-panel px-3 py-2 text-[13px] leading-snug text-fog" role="note">
+          {props.note}
+        </p>
+      )}
+      <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5 text-[12.5px]">
       {props.chips.map((f) => (
         <span key={f} className="rounded-full border border-line bg-panel px-2.5 py-0.5 text-fog">{f}</span>
       ))}
@@ -58,7 +64,8 @@ const REGISTRY: { [K in ComponentType]: Render<K> } = {
           see all in the classic list
         </Link>
       )}
-    </div>
+      </div>
+    </>
   ),
 
   Products: ({ props, data }) => (

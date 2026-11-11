@@ -44,6 +44,29 @@ describe("buildSpec", () => {
   });
 });
 
+describe("saying plainly what the store did", () => {
+  it("names the substitution when the shopper's keywords found nothing", () => {
+    const items = [item("h", 30)];
+    const s = buildSpec({ request: "x", plan: PLAN, items, total: 1, searched: { query: "wet dry vacuum", category: "", broadenedFrom: "shop vac" }, done: true });
+    expect(s.elements.filters!.props).toMatchObject({ note: "No exact match for “shop vac”, so these are the closest the catalog has, for “wet dry vacuum”." });
+    expect(validateSpec(s, specData(items))).toEqual([]);
+  });
+
+  it("shows one product as a single card, not a one-column comparison", () => {
+    const items = [item("h", 30)];
+    const s = buildSpec({ request: "x", plan: { ...PLAN, layout: "compare" }, items, total: 1, done: true });
+    expect(s.elements.body).toMatchObject({ type: "Products", props: { layout: "single", ids: ["h"] } });
+    expect((s.elements.filters!.props as { note?: string }).note).toBe("Only one product matched, so there is nothing to compare it with.");
+  });
+
+  it("drops a follow-up that talks to the shopper instead of being a request they can send", () => {
+    const ask = (followUp: string) => buildSpec({ request: "x", plan: { ...PLAN, followUp }, items: [item("a", 1)], total: 1, done: true }).elements.followUp;
+    expect(ask("Would you like a push mower or a riding mower?")).toBeUndefined();
+    expect(ask("What is your budget?")).toBeUndefined();
+    expect(ask("battery push mowers under $300")).toMatchObject({ props: { text: "battery push mowers under $300" } });
+  });
+});
+
 describe("validateSpec", () => {
   const items = [item("a", 99)];
   const good = buildSpec({ request: "x", plan: PLAN, items, total: 1, done: true });

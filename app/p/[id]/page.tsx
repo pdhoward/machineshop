@@ -58,7 +58,7 @@ export default async function ProductPage({ params }: Props) {
       <div className="grid gap-8 pt-6 lg:grid-cols-[1.1fr_1fr] lg:gap-12">
         <Gallery images={p.images} name={p.name} />
 
-        <div className="flex flex-col gap-5">
+        <div className="flex min-w-0 flex-col gap-5">
           <div>
             {p.brand && <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-mist">{p.brand}</p>}
             <h1 className="mt-1.5 text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{p.name}</h1>
@@ -103,20 +103,21 @@ export default async function ProductPage({ params }: Props) {
 
       <div className="grid gap-8 pt-14 lg:grid-cols-[1.1fr_1fr] lg:gap-12">
         {p.description && (
-          <section>
+          <section className="min-w-0">
             <h2 className="text-lg font-semibold tracking-tight">About this product</h2>
             <p className="mt-3 text-[15px] leading-relaxed text-fog">{p.description}</p>
             {p.sourceHost && <p className="mt-4 text-[12.5px] text-mist">Catalog data from {p.sourceHost}</p>}
           </section>
         )}
         {p.specs.length > 0 && (
-          <section>
+          <section className="min-w-0">
             <h2 className="text-lg font-semibold tracking-tight">Specifications</h2>
             <dl className="mt-3 overflow-hidden rounded-2xl border border-line bg-panel">
               {p.specs.map((s, i) => (
                 <div key={`${s.label}-${i}`} className="grid grid-cols-[1fr_1.2fr] gap-4 border-b border-line px-4 py-2.5 text-[13.5px] last:border-0">
                   <dt className="text-fog">{s.label}</dt>
-                  <dd>{s.value}</dd>
+                  {/* Catalog values like "interiors,Hypoallergenic,Lightweight,Wet/Dry" have no spaces to wrap at. */}
+                  <dd className="min-w-0 [overflow-wrap:anywhere]">{s.value}</dd>
                 </div>
               ))}
             </dl>

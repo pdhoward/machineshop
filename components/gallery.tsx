@@ -9,13 +9,15 @@ export function Gallery({ images, name }: { images: string[]; name: string }) {
   const [at, setAt] = useState(0);
   if (!images.length) {
     return (
-      <div className="photo grid aspect-square place-items-center rounded-3xl border border-line text-mist">
+      <div className="photo grid min-w-0 aspect-square place-items-center rounded-3xl border border-line text-mist">
         <ImageOff className="size-10" />
       </div>
     );
   }
   return (
-    <div className="flex flex-col gap-3">
+    // min-w-0: a grid item otherwise grows to its content's width, and a long thumbnail strip
+    // (15 photos is about 1,300 px) would stretch the page instead of scrolling.
+    <div className="flex min-w-0 flex-col gap-3">
       <div className="photo aspect-square overflow-hidden rounded-3xl border border-line">
         {/* eslint-disable-next-line @next/next/no-img-element -- remote catalog images */}
         <img src={images[at]} alt={name} className="size-full object-contain p-6 sm:p-10" />

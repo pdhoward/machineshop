@@ -86,14 +86,17 @@ export type Answer = { plan: Plan; items: Item[]; total: number; trace: Trace; p
 /** What the screen is told as the answer forms (B21), each stamped with ms since the request started. */
 export type AnswerEvent =
   | { type: "plan"; at: number; plan: Partial<Plan> }
-  | { type: "items"; at: number; items: Item[]; total: number; searched: { query: string; category: string }; hideOutOfStock: boolean }
+  | { type: "items"; at: number; items: Item[]; total: number; searched: Searched; hideOutOfStock: boolean }
   | { type: "done"; at: number; plan: Plan; total: number; trace: Trace }
   | { type: "error"; at: number; message: string };
 
 /** The fields the catalog search needs: once the model has written these, the search starts. */
 const SEARCH_FIELDS = ["layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "alternatives"] as const;
 type Search = Pick<Plan, (typeof SEARCH_FIELDS)[number]>;
-type Found = { items: ProductCard[]; total: number; used: { q: string; category?: string }; broadened: boolean };
+type Found = { items: ProductCard[]; total: number; used: { q: string; category?: string }; broadened: boolean; from: string };
+/** What the kernel searched; `broadenedFrom` names the shopper's keywords when they found nothing and others were used. */
+export type Searched = { query: string; category: string; broadenedFrom?: string };
+const searchedOf = (f: Found): Searched => ({ query: f.used.q, category: f.used.category ?? "", ...(f.used.q !== f.from && { broadenedFrom: f.from }) });
 
 const SYSTEM = (departments: string) => `You are the app agent of Machine Shop, an online store of about 10,000 home and workshop products. A shopper typed a request into the store's search box. Decide what to look for in the catalog and how to present it, following the store's rules below.
 
@@ -105,7 +108,7 @@ Return:
 - layout: "compare" when the shopper wants to compare or choose between options, "single" when they name one specific product, else "grid".
 - headline: a short title for the results. explanation: one or two sentences telling the shopper what you looked for and which store rules shaped the results, in plain words (no policy keys).
 - rulesApplied: the keys of the policies or rulings that shaped this decision (only keys that appear below).
-- followUp: one short suggestion of what the shopper could ask next.
+- followUp: one short request the shopper could send next, written exactly as the shopper would type it into the search box, complete on its own (e.g. "battery push mowers under $300"). Never a question to the shopper, never "you".
 - alternatives: 2 or 3 broader or different keyword sets (1 or 2 words each) for the same need, used if the first search finds nothing. For "keep my garage floor clean": ["floor cleaner", "broom", "floor mat"].`;
 
 /**
@@ -150,6 +153,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
 
   // The kernel needs every keyword to match, so a miss is common. Every attempt runs at once (the keywords in the department,
   // without it, then the agent's broader alternatives) and the first hit in that order wins: a miss costs no extra wait.
+  // A comparison needs two products: the first attempt with two wins, else the first with any.
   const findAll = async (f: Search): Promise<Found> => {
     const attempts: { q: string; category?: string }[] = [
       { q: f.query, category: f.category || undefined },
@@ -158,11 +162,15 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
     ];
     const runs = attempts.map((a) => search({ q: a.q, category: a.category, ...priceOf(f) }, 1, sizeOf(f.layout)));
     runs.forEach((r) => r.catch(() => {})); // those after a hit are never awaited
+    const need = f.layout === "compare" ? 2 : 1;
+    let best: Found | null = null;
     for (const [i, run] of runs.entries()) {
       const r = await run;
-      if (r.items.length) return { ...r, used: attempts[i]!, broadened: i > 0 };
+      const found = { ...r, used: attempts[i]!, broadened: i > 0, from: f.query };
+      if (r.items.length >= need) return found;
+      if (r.items.length && !best) best = found;
     }
-    return { items: [], total: 0, used: attempts[0]!, broadened: false };
+    return best ?? { items: [], total: 0, used: attempts[0]!, broadened: false, from: f.query };
   };
 
   let firstField: number | null = null;
@@ -173,7 +181,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   const show = (f: Found, inStockOnly: boolean) => {
     products ??= since();
     shown = true;
-    emit?.({ type: "items", at: since(), items: decide(f.items), total: f.total, searched: { query: f.used.q, category: f.used.category ?? "" }, hideOutOfStock: hideOut(inStockOnly) });
+    emit?.({ type: "items", at: since(), items: decide(f.items), total: f.total, searched: searchedOf(f), hideOutOfStock: hideOut(inStockOnly) });
   };
 
   // Decide: one streamed call. The search starts as soon as its fields are written; the screen sees each field as it forms.
@@ -226,7 +234,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
 
   const known = new Map([...part.policies.map((p) => [p.key, p.statement] as const), ...part.rulings.flatMap((r) => r.keys.map((k) => [k, r.ruling] as const))]);
   const rules = [...new Set([...plan.rulesApplied, ...(items.length ? projection.buy.policies : [])])].filter((k) => known.has(k)).map((key) => ({ key, text: known.get(key)! }));
-  const spec = buildSpec({ request, plan, items, total, searched: { query: used.q, category: used.category ?? "" }, hideOutOfStock: hideOut(plan.inStockOnly), done: true });
+  const spec = buildSpec({ request, plan, items, total, searched: searchedOf(found), hideOutOfStock: hideOut(plan.inStockOnly), done: true });
   const parts = Object.values(spec.elements).map((e) => e.type).filter((x) => x !== "Answer");
   stages.push({ name: "render", ms: 0, detail: `${plan.layout} layout from ${parts.length} catalog components: ${parts.join(", ")}` });
 
