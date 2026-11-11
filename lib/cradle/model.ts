@@ -28,7 +28,17 @@ const anthropic = () => {
   return (client ??= new Anthropic(workspace ? { defaultHeaders: { "anthropic-workspace-id": workspace } } : {}));
 };
 
-export type Call<T> = { data: T; model: string; ms: number; tokensIn: number; tokensOut: number; costUsd: number };
+export type Call<T> = {
+  data: T;
+  model: string;
+  ms: number;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  /** Streamed calls: ms until the model's first text, and the input tokens read from the prompt cache. */
+  firstTextMs?: number;
+  cachedIn?: number;
+};
 
 export type JsonOpts = {
   model: string;
@@ -78,8 +88,10 @@ export async function jsonCall<T>(opts: JsonOpts): Promise<Call<T>> {
  */
 export async function jsonStream<T>(opts: JsonOpts & { onText: (soFar: string) => void }): Promise<Call<T>> {
   const started = Date.now();
+  let firstTextMs: number | undefined;
   const stream = anthropic().messages.stream(params(opts));
   stream.on("text", (_delta, soFar) => {
+    firstTextMs ??= Date.now() - started;
     try {
       opts.onText(soFar);
     } catch (err) {
@@ -87,7 +99,7 @@ export async function jsonStream<T>(opts: JsonOpts & { onText: (soFar: string) =
     }
   });
   const res = await stream.finalMessage().catch(fault(opts));
-  return finish<T>(opts, res, started);
+  return { ...finish<T>(opts, res, started), firstTextMs, cachedIn: res.usage.cache_read_input_tokens ?? 0 };
 }
 
 type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };

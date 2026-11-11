@@ -213,7 +213,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   });
   const plan = call.data;
   const decided = since();
-  mark("decide", t, `${call.model} · intent ${plan.intent} · "${plan.query}"${plan.category ? ` in ${plan.category}` : ""}${firstField != null ? ` · first field at ${firstField} ms` : ""}`);
+  mark("decide", t, `${call.model} · intent ${plan.intent} · "${plan.query}"${plan.category ? ` in ${plan.category}` : ""}${call.firstTextMs != null ? ` · first text after ${call.firstTextMs} ms` : ""} · ${call.tokensIn.toLocaleString("en-US")} tokens in (${(call.cachedIn ?? 0).toLocaleString("en-US")} cached), ${call.tokensOut} out`);
 
   t = Date.now();
   const found = await (early ?? ((searchStarted = since()), findAll(plan)));
