@@ -9,6 +9,7 @@ import { reportFault } from "@/lib/cradle/fault";
 import { costOf } from "@/lib/cradle/model";
 import { reportUsage } from "@/lib/cradle/usage";
 import type { ProductCard } from "@/lib/product";
+import { speedBump } from "@/lib/speed-bump";
 
 /** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
 export const maxDuration = 300;
@@ -31,22 +32,12 @@ const TOOLS: Anthropic.Tool[] = SKILLS.map((s) => ({ name: s.name, description: 
 
 type Msg = { role: "user" | "assistant"; content: string };
 
-// A soft per-IP speed bump (per server instance); the model's own cost is capped by max_tokens and turns.
-const hits = new Map<string, { n: number; until: number }>();
-function limited(ip: string) {
-  const now = Date.now();
-  const h = hits.get(ip);
-  if (!h || h.until < now) {
-    hits.set(ip, { n: 1, until: now + 10 * 60_000 });
-    return false;
-  }
-  return ++h.n > 30;
-}
+const limited = speedBump(30, 10 * 60_000);
 
 export async function POST(request: Request) {
   if (!process.env.ANTHROPIC_API_KEY) return Response.json({ error: "The assistant isn't set up yet." }, { status: 503 });
   if (!catalogConfigured()) return Response.json({ error: "The catalog isn't connected yet." }, { status: 503 });
-  if (limited(request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local")) {
+  if (limited(request)) {
     return Response.json({ error: "That's a lot of questions! Give it a few minutes." }, { status: 429 });
   }
 

@@ -7,8 +7,10 @@ import { stripeReady } from "../stripe";
 import type { ProductCard } from "../product";
 import { bookText, ground } from "./book";
 import { compiledRules, type Rules } from "./compile";
-import { FAST_MODEL, jsonCall } from "./model";
+import { FAST_MODEL, jsonStream } from "./model";
+import { scanObject } from "./partial-json";
 import { buyDecision, type BuyDecision, type Projection } from "./projection";
+import { buildSpec, type Spec } from "./ui";
 
 /**
  * The app agent (gen3-cradle.md §1.4): a shopper's request, carried out on
@@ -37,20 +39,21 @@ export type Plan = {
 const PLAN_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["intent", "query", "category", "minPrice", "maxPrice", "inStockOnly", "layout", "headline", "explanation", "rulesApplied", "followUp", "alternatives"],
+  // The choices the search needs come first and the words after, so the search can start while the model is still writing (B21).
+  required: ["intent", "layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "alternatives", "headline", "explanation", "followUp", "rulesApplied"],
   properties: {
     intent: { type: "string", enum: ["find", "compare", "one_product", "buy", "other"] },
+    layout: { type: "string", enum: ["grid", "compare", "single"] },
     query: { type: "string" },
     category: { type: "string" },
     minPrice: { type: "number" },
     maxPrice: { type: "number" },
     inStockOnly: { type: "boolean" },
-    layout: { type: "string", enum: ["grid", "compare", "single"] },
+    alternatives: { type: "array", items: { type: "string" } },
     headline: { type: "string" },
     explanation: { type: "string" },
-    rulesApplied: { type: "array", items: { type: "string" } },
     followUp: { type: "string" },
-    alternatives: { type: "array", items: { type: "string" } },
+    rulesApplied: { type: "array", items: { type: "string" } },
   },
 };
 
@@ -74,9 +77,23 @@ export type Trace = {
   rules: { key: string; text: string }[];
   /** This request compiled the rules first (the first request on a new version or a fresh server instance). */
   compile: { model: string; ms: number; costUsd: number } | null;
+  /** When things happened, in ms from the start of the request (B21): measured, not claimed. Null when it didn't happen. */
+  timeline: { firstField: number | null; searchStarted: number | null; products: number | null; decided: number };
 };
 export type Item = ProductCard & { buy: BuyDecision };
-export type Answer = { plan: Plan; items: Item[]; total: number; trace: Trace; projection: Projection };
+export type Answer = { plan: Plan; items: Item[]; total: number; trace: Trace; projection: Projection; spec: Spec };
+
+/** What the screen is told as the answer forms (B21), each stamped with ms since the request started. */
+export type AnswerEvent =
+  | { type: "plan"; at: number; plan: Partial<Plan> }
+  | { type: "items"; at: number; items: Item[]; total: number; searched: { query: string; category: string }; hideOutOfStock: boolean }
+  | { type: "done"; at: number; plan: Plan; total: number; trace: Trace }
+  | { type: "error"; at: number; message: string };
+
+/** The fields the catalog search needs: once the model has written these, the search starts. */
+const SEARCH_FIELDS = ["layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "alternatives"] as const;
+type Search = Pick<Plan, (typeof SEARCH_FIELDS)[number]>;
+type Found = { items: ProductCard[]; total: number; used: { q: string; category?: string }; broadened: boolean };
 
 const SYSTEM = (departments: string) => `You are the app agent of Machine Shop, an online store of about 10,000 home and workshop products. A shopper typed a request into the store's search box. Decide what to look for in the catalog and how to present it, following the store's rules below.
 
@@ -91,23 +108,28 @@ Return:
 - followUp: one short suggestion of what the shopper could ask next.
 - alternatives: 2 or 3 broader or different keyword sets (1 or 2 words each) for the same need, used if the first search finds nothing. For "keep my garage floor clean": ["floor cleaner", "broom", "floor mat"].`;
 
-/** `candidate` lets the conformance gate run a request on a candidate book instead of the one in force. */
-export async function ask(request: string, candidate?: Rules): Promise<Answer> {
+/**
+ * Carry out one request. `candidate` lets the conformance gate run it on a
+ * candidate book instead of the one in force; `emit` streams the answer to
+ * the screen as it forms (the gate and the text channel just await the end).
+ */
+export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerEvent) => void): Promise<Answer> {
   const t0 = Date.now();
+  const since = () => Date.now() - t0;
   const stages: Stage[] = [];
-  const mark = (name: Stage["name"], since: number, detail: string) => stages.push({ name, ms: Date.now() - since, detail });
+  const mark = (name: Stage["name"], from: number, detail: string) => stages.push({ name, ms: Date.now() - from, detail });
 
   // Route: the request is shopping; ground on the shopping concepts.
   let t = Date.now();
   // Timed apart, so the Why drawer shows where the wait is: the rules (from the Accelerator, compiled) or the departments (the catalog).
-  const since = t;
+  const from = t;
   let rulesMs = 0;
   let departmentsMs = 0;
   const [{ book, projection, compiled, compiledNow, call: compileCall }, departments] = await Promise.all([
-    (candidate ? Promise.resolve({ ...candidate, compiled: true, compiledNow: false, call: null }) : compiledRules()).then((r) => ((rulesMs = Date.now() - since), r)),
+    (candidate ? Promise.resolve({ ...candidate, compiled: true, compiledNow: false, call: null }) : compiledRules()).then((r) => ((rulesMs = Date.now() - from), r)),
     listDepartments()
       .catch(() => [])
-      .then((d) => ((departmentsMs = Date.now() - since), d)),
+      .then((d) => ((departmentsMs = Date.now() - from), d)),
   ]);
   const compile = compiledNow && compileCall ? { model: compileCall.model, ms: compileCall.ms, costUsd: compileCall.costUsd } : null;
   mark(
@@ -120,49 +142,100 @@ export async function ask(request: string, candidate?: Rules): Promise<Answer> {
   const part = book ? ground(book, SHOPPING) : { policies: [], rulings: [] };
   mark("ground", t, book ? `${part.policies.length} of ${book.policies.length} policies and ${part.rulings.length} rulings, book ${book.version}` : "no book: safe settings");
 
+  const hideOut = (inStockOnly: boolean | undefined) => !!inStockOnly || projection.search.hideOutOfStockByDefault;
+  const sizeOf = (layout: Plan["layout"]) => (layout === "single" ? 1 : layout === "compare" ? 4 : 12);
+  const ready = stripeReady();
+  const decide = (items: ProductCard[]): Item[] => items.map((p) => ({ ...p, buy: buyDecision(p, projection, ready) }));
+  const priceOf = (f: Search) => ({ minPrice: f.minPrice > 0 ? f.minPrice : undefined, maxPrice: f.maxPrice > 0 ? f.maxPrice : undefined, inStockOnly: hideOut(f.inStockOnly) });
+
+  // The kernel needs every keyword to match, so a miss is common. Every attempt runs at once (the keywords in the department,
+  // without it, then the agent's broader alternatives) and the first hit in that order wins: a miss costs no extra wait.
+  const findAll = async (f: Search): Promise<Found> => {
+    const attempts: { q: string; category?: string }[] = [
+      { q: f.query, category: f.category || undefined },
+      ...(f.category ? [{ q: f.query }] : []),
+      ...(f.alternatives ?? []).map((a) => a.trim()).filter(Boolean).slice(0, 3).map((q) => ({ q })),
+    ];
+    const runs = attempts.map((a) => search({ q: a.q, category: a.category, ...priceOf(f) }, 1, sizeOf(f.layout)));
+    runs.forEach((r) => r.catch(() => {})); // those after a hit are never awaited
+    for (const [i, run] of runs.entries()) {
+      const r = await run;
+      if (r.items.length) return { ...r, used: attempts[i]!, broadened: i > 0 };
+    }
+    return { items: [], total: 0, used: attempts[0]!, broadened: false };
+  };
+
+  let firstField: number | null = null;
+  let searchStarted: number | null = null;
+  let products: number | null = null;
+  let early: Promise<Found> | null = null;
+  let shown = false;
+  const show = (f: Found, inStockOnly: boolean) => {
+    products ??= since();
+    shown = true;
+    emit?.({ type: "items", at: since(), items: decide(f.items), total: f.total, searched: { query: f.used.q, category: f.used.category ?? "" }, hideOutOfStock: hideOut(inStockOnly) });
+  };
+
+  // Decide: one streamed call. The search starts as soon as its fields are written; the screen sees each field as it forms.
   t = Date.now();
-  const call = await jsonCall<Plan>({
+  let lastSent = 0;
+  let lastComplete = 0;
+  const call = await jsonStream<Plan>({
     role: "search", model: FAST_MODEL(), effort: "low", think: false, maxTokens: 1200, schema: PLAN_SCHEMA,
     system: `${SYSTEM(departments.map((d) => d.name).join(", "))}\n\nThe store's rules in force:\n${bookText(part) || "(none available: be cautious)"}`,
     user: request.slice(0, 500),
+    onText: (soFar) => {
+      const scan = scanObject(soFar);
+      if (scan.complete.size && firstField == null) firstField = since();
+      if (!early && SEARCH_FIELDS.every((k) => scan.complete.has(k))) {
+        searchStarted = since();
+        const f = scan.values as Search;
+        early = findAll(f);
+        // Shown the moment it lands; a failure surfaces where it is awaited below.
+        early.then((found) => found.items.length && show(found, f.inStockOnly)).catch(() => {});
+      }
+      if (!emit) return;
+      // Patch the screen at once when a field finishes, else at most every 40 ms while a string grows.
+      const now = Date.now();
+      if (scan.complete.size === lastComplete && now - lastSent < 40) return;
+      lastSent = now;
+      lastComplete = scan.complete.size;
+      emit({ type: "plan", at: since(), plan: { ...scan.values, ...(scan.open && { [scan.open.key]: scan.open.value }) } as Partial<Plan> });
+    },
   });
   const plan = call.data;
-  mark("decide", t, `${call.model} · intent ${plan.intent} · "${plan.query}"${plan.category ? ` in ${plan.category}` : ""}`);
+  const decided = since();
+  mark("decide", t, `${call.model} · intent ${plan.intent} · "${plan.query}"${plan.category ? ` in ${plan.category}` : ""}${firstField != null ? ` · first field at ${firstField} ms` : ""}`);
 
   t = Date.now();
-  const hideOut = plan.inStockOnly || projection.search.hideOutOfStockByDefault;
-  const size = plan.layout === "single" ? 1 : plan.layout === "compare" ? 4 : 12;
-  const price = { minPrice: plan.minPrice > 0 ? plan.minPrice : undefined, maxPrice: plan.maxPrice > 0 ? plan.maxPrice : undefined, inStockOnly: hideOut };
-  // The kernel needs every keyword to match: on a miss, try without the department, then the agent's broader alternatives.
-  const attempts = [
-    { q: plan.query, category: plan.category || undefined },
-    ...(plan.category ? [{ q: plan.query, category: undefined }] : []),
-    ...(plan.alternatives ?? []).filter((a) => a.trim()).slice(0, 3).map((q) => ({ q, category: undefined })),
-  ];
-  let found = { items: [] as ProductCard[], total: 0 };
-  let used = attempts[0]!;
-  for (const a of attempts) {
-    found = await search({ ...a, ...price }, 1, size);
-    used = a;
-    if (found.items.length) break;
-  }
-  const { items, total } = found;
-  if (used.q !== plan.query || used.category !== (plan.category || undefined)) {
+  const found = await (early ?? ((searchStarted = since()), findAll(plan)));
+  // The early search showed its hits the moment they landed (its .then ran before this await resumed); a miss is shown now.
+  if (!shown) show(found, plan.inStockOnly);
+  const { total, used } = found;
+  if (used.q !== plan.query || (used.category ?? "") !== plan.category) {
     plan.query = used.q;
     plan.category = used.category ?? "";
   }
-  const ready = stripeReady();
-  const decided: Item[] = items.map((p) => ({ ...p, buy: buyDecision(p, projection, ready) }));
-  mark("execute", t, `catalog kernel: ${total} matches for "${used.q}"${used.category ? ` in ${used.category}` : ""}${hideOut ? ", in stock only" : ""}${used !== attempts[0] ? " (broadened after a miss)" : ""} · buy rule on ${decided.length}`);
+  const items = decide(found.items);
+  const overlap = searchStarted != null && searchStarted < decided ? ` · started at ${searchStarted} ms, ${decided - searchStarted} ms before the model finished` : "";
+  mark(
+    "execute",
+    t,
+    `catalog kernel: ${total} matches for "${used.q}"${used.category ? ` in ${used.category}` : ""}${hideOut(plan.inStockOnly) ? ", in stock only" : ""}${found.broadened ? " (broadened after a miss)" : ""} · buy rule on ${items.length}${overlap}`,
+  );
 
   const known = new Map([...part.policies.map((p) => [p.key, p.statement] as const), ...part.rulings.flatMap((r) => r.keys.map((k) => [k, r.ruling] as const))]);
-  const rules = [...new Set([...plan.rulesApplied, ...(decided.length ? projection.buy.policies : [])])].filter((k) => known.has(k)).map((key) => ({ key, text: known.get(key)! }));
-  stages.push({ name: "render", ms: 0, detail: `${plan.layout} layout from tested components` });
+  const rules = [...new Set([...plan.rulesApplied, ...(items.length ? projection.buy.policies : [])])].filter((k) => known.has(k)).map((key) => ({ key, text: known.get(key)! }));
+  const spec = buildSpec({ request, plan, items, total, searched: { query: used.q, category: used.category ?? "" }, hideOutOfStock: hideOut(plan.inStockOnly), done: true });
+  const parts = Object.values(spec.elements).map((e) => e.type).filter((x) => x !== "Answer");
+  stages.push({ name: "render", ms: 0, detail: `${plan.layout} layout from ${parts.length} catalog components: ${parts.join(", ")}` });
 
   const trace: Trace = {
     id: randomUUID().slice(0, 8), at: new Date().toISOString(), request, bookVersion: book?.version ?? null, compiled, stages, model: call.model,
-    tokensIn: call.tokensIn, tokensOut: call.tokensOut, costUsd: call.costUsd, totalMs: Date.now() - t0, rules, compile,
+    tokensIn: call.tokensIn, tokensOut: call.tokensOut, costUsd: call.costUsd, totalMs: since(), rules, compile,
+    timeline: { firstField, searchStarted, products, decided },
   };
-  console.log(`[cradle] ${JSON.stringify({ id: trace.id, request, plan: { intent: plan.intent, query: plan.query, category: plan.category }, total, ms: trace.totalMs, cost: trace.costUsd, rules: rules.map((r) => r.key), book: trace.bookVersion })}`);
-  return { plan, items: decided, total, trace, projection };
+  emit?.({ type: "done", at: since(), plan, total, trace });
+  console.log(`[cradle] ${JSON.stringify({ id: trace.id, request, plan: { intent: plan.intent, query: plan.query, category: plan.category }, total, ms: trace.totalMs, timeline: trace.timeline, cost: trace.costUsd, rules: rules.map((r) => r.key), book: trace.bookVersion })}`);
+  return { plan, items, total, trace, projection, spec };
 }

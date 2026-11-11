@@ -4,15 +4,33 @@ import { useState } from "react";
 import { ScrollText, X } from "lucide-react";
 
 import type { Trace } from "@/lib/cradle/agent";
+import type { Marks } from "@/lib/cradle/live";
 
 /**
  * Why? — the record of one decision (cradle mode): the steps the app agent
  * took, how long each took, what the model call cost, the book version, and
  * the rules that shaped the answer. Made for comparing the three versions.
  */
-export function Why({ trace }: { trace: Trace }) {
+export function Why({ trace, marks }: { trace: Trace; marks?: Marks }) {
   const [open, setOpen] = useState(false);
   const total = trace.costUsd + (trace.compile?.costUsd ?? 0);
+  // Measured on this screen from the moment the shopper pressed Enter (B21), then on the server from the moment the request arrived.
+  const screen: [string, number | undefined][] = marks
+    ? [
+        ["First words on screen", marks.plan],
+        ["Layout chosen", marks.layout],
+        ["Products on screen", marks.products],
+        ["Answer complete", marks.done],
+      ]
+    : [];
+  const server: [string, number | null][] = trace.timeline
+    ? [
+        ["Model's first field", trace.timeline.firstField],
+        ["Catalog search started", trace.timeline.searchStarted],
+        ["Products ready", trace.timeline.products],
+        ["Model finished", trace.timeline.decided],
+      ]
+    : [];
   return (
     <>
       <button
@@ -20,7 +38,7 @@ export function Why({ trace }: { trace: Trace }) {
         onClick={() => setOpen(true)}
         className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel px-3 py-1.5 text-[12.5px] font-medium text-fog transition-colors hover:border-accent hover:text-accent"
       >
-        <ScrollText className="size-3.5" /> Why? · {(trace.totalMs / 1000).toFixed(1)}s · ${total.toFixed(4)}
+        <ScrollText className="size-3.5" /> Why? · {marks?.products != null ? `products in ${(marks.products / 1000).toFixed(1)}s` : `${(trace.totalMs / 1000).toFixed(1)}s`} · ${total.toFixed(4)}
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setOpen(false)}>
@@ -35,6 +53,35 @@ export function Why({ trace }: { trace: Trace }) {
             <p className="mt-1 text-[12.5px] text-mist">
               Decision {trace.id} · rules version {trace.bookVersion ?? "none"}{trace.compiled ? "" : " (safe settings)"}
             </p>
+
+            {(screen.length > 0 || server.length > 0) && (
+              <>
+                <h3 className="mt-5 font-mono text-[11px] uppercase tracking-[0.14em] text-mist">How fast</h3>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-[12.5px]">
+                  {[
+                    ["On your screen, from Enter", screen] as const,
+                    ["On the server, from arrival", server] as const,
+                  ].map(([title, rows]) =>
+                    rows.length ? (
+                      <div key={title} className="rounded-xl border border-line bg-panel px-3 py-2">
+                        <p className="text-[11.5px] text-mist">{title}</p>
+                        <dl className="mt-1 flex flex-col gap-0.5">
+                          {rows.map(([k, v]) => (
+                            <div key={k} className="flex items-baseline gap-2">
+                              <dt className="text-fog">{k}</dt>
+                              <dd className="ml-auto font-mono tabular-nums">{v == null ? "—" : `${v} ms`}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+                <p className="mt-1.5 text-[11.5px] leading-snug text-mist">
+                  The search starts as soon as the model has written the fields it needs, while it is still writing the headline, so products often arrive before the model finishes.
+                </p>
+              </>
+            )}
 
             <h3 className="mt-5 font-mono text-[11px] uppercase tracking-[0.14em] text-mist">The request path</h3>
             <ol className="mt-2 flex flex-col gap-1.5">

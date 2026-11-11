@@ -30,7 +30,7 @@ const anthropic = () => {
 
 export type Call<T> = { data: T; model: string; ms: number; tokensIn: number; tokensOut: number; costUsd: number };
 
-export async function jsonCall<T>(opts: {
+export type JsonOpts = {
   model: string;
   system: string;
   user: string;
@@ -41,24 +41,53 @@ export async function jsonCall<T>(opts: {
   think?: boolean;
   /** What the call is for, named in model-health reports (search, compile, proof). */
   role: string;
-}): Promise<Call<T>> {
-  const started = Date.now();
-  const res = await anthropic()
-    .messages.create({
-      model: opts.model,
-      max_tokens: opts.maxTokens ?? 4000,
-      ...(opts.think === false ? { thinking: { type: "disabled" as const } } : {}),
-      system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: opts.user }],
-      output_config: { effort: opts.effort, format: { type: "json_schema", schema: opts.schema } },
-    })
-    .catch((err: unknown) => {
-      reportFault(opts.role, opts.model, err); // out of credit, bad key…: the Accelerator shows it (B18)
-      throw err;
-    });
+};
+
+const params = (opts: JsonOpts) => ({
+  model: opts.model,
+  max_tokens: opts.maxTokens ?? 4000,
+  ...(opts.think === false ? { thinking: { type: "disabled" as const } } : {}),
+  system: [{ type: "text" as const, text: opts.system, cache_control: { type: "ephemeral" as const } }],
+  messages: [{ role: "user" as const, content: opts.user }],
+  output_config: { effort: opts.effort, format: { type: "json_schema" as const, schema: opts.schema } },
+});
+
+function finish<T>(opts: JsonOpts, res: Anthropic.Message, started: number): Call<T> {
   if (res.stop_reason === "refusal") throw new Error("The model declined this request.");
+  if (res.stop_reason === "max_tokens") throw new Error(`The model ran out of room (${opts.maxTokens ?? 4000} tokens) before finishing its answer.`);
   const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   return { data: JSON.parse(text) as T, model: opts.model, ms: Date.now() - started, ...costOf(opts.model, res.usage) };
+}
+
+const fault = (opts: JsonOpts) => (err: unknown) => {
+  reportFault(opts.role, opts.model, err); // out of credit, bad key…: the Accelerator shows it (B18)
+  throw err;
+};
+
+export async function jsonCall<T>(opts: JsonOpts): Promise<Call<T>> {
+  const started = Date.now();
+  const res = await anthropic().messages.create(params(opts)).catch(fault(opts));
+  return finish<T>(opts, res, started);
+}
+
+/**
+ * The same call, streamed (B21): `onText` sees the JSON written so far after
+ * every delta, so the caller can act on finished fields (start the search,
+ * show the headline) while the model is still writing the rest. A throwing
+ * `onText` never breaks the call.
+ */
+export async function jsonStream<T>(opts: JsonOpts & { onText: (soFar: string) => void }): Promise<Call<T>> {
+  const started = Date.now();
+  const stream = anthropic().messages.stream(params(opts));
+  stream.on("text", (_delta, soFar) => {
+    try {
+      opts.onText(soFar);
+    } catch (err) {
+      console.error("[cradle] stream reader:", err instanceof Error ? err.message : err);
+    }
+  });
+  const res = await stream.finalMessage().catch(fault(opts));
+  return finish<T>(opts, res, started);
 }
 
 type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };

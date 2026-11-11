@@ -10,6 +10,7 @@ import { bookText, cradleHeaders, cradleUrl, getRuntime, ground, liveBook, type 
 import { compileBook, type Rules } from "./compile";
 import { faultLabel, modelFault, ModelUnavailable, reportFault } from "./fault";
 import { COMPILE_MODEL, jsonCall } from "./model";
+import { specData, validateSpec } from "./ui";
 
 /** The judge marks plain-English requirements; it must be at least as careful as the assistant it marks. */
 const JUDGE_MODEL = () => process.env.CRADLE_JUDGE_MODEL || "claude-sonnet-5-5";
@@ -131,6 +132,9 @@ async function once(check: ScenarioCheck, rules: Rules): Promise<Run> {
     if (check.expect.noOutOfStock && a.items.some((p) => p.stock !== "in")) problems.push("offered a product whose stock isn't clearly in");
     if (check.expect.maxPrice != null && a.items.some((p) => (p.price ?? 0) > check.expect.maxPrice!)) problems.push(`offered a product over $${check.expect.maxPrice}`);
     if (a.items.length < check.expect.minResults) problems.push(`found ${a.items.length}, needed at least ${check.expect.minResults}`);
+    // The screen it would show must be built only from catalog components bound to the kernel's results (B8).
+    const ui = validateSpec(a.spec, specData(a.items));
+    if (ui.length) problems.push(`the answer's screen is invalid: ${ui.slice(0, 3).join("; ")}`);
     return { ok: !problems.length, why: problems.join("; ") || `${a.items.length} results, all within the rules`, costUsd: a.trace.costUsd };
   }
   if (check.kind === "notice") {

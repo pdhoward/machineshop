@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 
+import { startAnswer } from "@/lib/cradle/live";
+
 /** Searches the whole catalog; keeps the current department if one is chosen. */
 export function SearchBox() {
   const router = useRouter();
@@ -15,6 +17,8 @@ export function SearchBox() {
     if (q) next.set("q", q);
     const c = params.get("c");
     if (c) next.set("c", c);
+    // Cradle mode: start the answer now, while the page navigates (B21); the answer page picks up the same stream.
+    if (q && process.env.NEXT_PUBLIC_CRADLE_MODE) startAnswer(q);
     router.push(`/${next.size ? `?${next}` : ""}`);
   }
 
