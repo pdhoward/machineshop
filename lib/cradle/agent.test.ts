@@ -62,7 +62,7 @@ describe("ask, streamed", () => {
     expect(log).toEqual(["search drill in Tools", "search drill in all", "search driver in all", "products shown", "model finished"]);
     expect(a.plan.query).toBe("drill");
     expect(a.plan.category).toBe("Tools");
-    expect(mocks.search).toHaveBeenCalledWith({ q: "drill", category: "Tools", minPrice: undefined, maxPrice: 100, inStockOnly: true }, 1, 12);
+    expect(mocks.search).toHaveBeenCalledWith({ q: "drill", category: "Tools", minPrice: undefined, maxPrice: 100, inStockOnly: true }, 1, 40); // a pool, ranked by the platform, then cut to the layout's 12
 
     const kinds = events.map((e) => e.type);
     expect(kinds.at(-1)).toBe("done");

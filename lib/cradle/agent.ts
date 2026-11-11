@@ -9,6 +9,7 @@ import { bookText, ground } from "./book";
 import { compiledRules, type Rules } from "./compile";
 import { FAST_MODEL, jsonStream } from "./model";
 import { scanObject } from "./partial-json";
+import { rankByRelevance } from "./relevance";
 import { buyDecision, type BuyDecision, type Projection } from "./projection";
 import { buildSpec, type Spec } from "./ui";
 
@@ -91,6 +92,8 @@ export type AnswerEvent =
   | { type: "error"; at: number; message: string };
 
 /** The fields the catalog search needs: once the model has written these, the search starts. */
+/** How many candidates the kernel returns for ranking. */
+const POOL = 40;
 const SEARCH_FIELDS = ["layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "alternatives"] as const;
 type Search = Pick<Plan, (typeof SEARCH_FIELDS)[number]>;
 type Found = { items: ProductCard[]; total: number; used: { q: string; category?: string }; broadened: boolean; from: string };
@@ -160,7 +163,14 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
       ...(f.category ? [{ q: f.query }] : []),
       ...(f.alternatives ?? []).map((a) => a.trim()).filter(Boolean).slice(0, 3).map((q) => ({ q })),
     ];
-    const runs = attempts.map((a) => search({ q: a.q, category: a.category, ...priceOf(f) }, 1, sizeOf(f.layout)));
+    // The kernel returns candidates where every word appears; the platform ranks a pool of them so the
+    // products themselves come before the parts that mention them (B9), then keeps the layout's size.
+    const runs = attempts.map((a) =>
+      search({ q: a.q, category: a.category, ...priceOf(f) }, 1, POOL).then((r) => ({
+        total: r.total,
+        items: rankByRelevance(r.items, a.q, (p) => ({ title: p.name, trail: p.trail })).slice(0, sizeOf(f.layout)),
+      })),
+    );
     runs.forEach((r) => r.catch(() => {})); // those after a hit are never awaited
     const need = f.layout === "compare" ? 2 : 1;
     let best: Found | null = null;

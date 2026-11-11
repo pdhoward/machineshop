@@ -38,6 +38,8 @@ export type ProductCard = {
   /** The raw stock status read strictly: only an explicit TRUE or FALSE is clear (cradle mode's buy rule). */
   stock: Stock;
   category: string | null;
+  /** The full category trail, top first (relevance ranking reads its last step). */
+  trail?: string[];
   rating: number | null;
   reviews: number | null;
 };
@@ -106,6 +108,7 @@ export function toCard(raw: RawProduct): ProductCard {
     inStock: str(raw.in_stock).toUpperCase() !== "FALSE",
     stock: stockOf(raw.in_stock),
     category: parseCategories(raw.breadcrumbs)[0] ?? null,
+    trail: parseCategories(raw.breadcrumbs),
     rating: num(raw.avg_rating),
     reviews: reviews ? Math.round(reviews) : null,
   };
