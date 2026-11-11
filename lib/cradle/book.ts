@@ -24,8 +24,17 @@ export type RuntimePolicy = {
 };
 
 export type RuntimeBook = {
-  site: { id: string; name: string };
-  pack: { id: string; version: string } | null;
+  /** The site as its owner registered it. */
+  site: { id: string; name: string; description?: string | null; url?: string | null };
+  /** The industry pack: what the industry is, its concepts, and which concepts each use grounds on (older books carry only id and version). */
+  pack: {
+    id: string;
+    version: string;
+    label?: string;
+    summary?: string;
+    concepts?: { key: string; label: string }[];
+    grounding?: Partial<Record<"search" | "assistant" | "scenarios", string[]>>;
+  } | null;
   version: string;
   at: string;
   policies: RuntimePolicy[];

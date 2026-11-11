@@ -11,6 +11,7 @@ import { compileBook, type Rules } from "./compile";
 import { faultLabel, modelFault, ModelUnavailable, reportFault } from "./fault";
 import { COMPILE_MODEL, jsonCall } from "./model";
 import { specData, validateSpec } from "./ui";
+import { groundingFor, introduce } from "./site";
 
 /** The judge marks plain-English requirements; it must be at least as careful as the assistant it marks. */
 const JUDGE_MODEL = () => process.env.CRADLE_JUDGE_MODEL || "claude-sonnet-5-5";
@@ -24,7 +25,6 @@ import { buyDecision, SAFE_PROJECTION } from "./projection";
  * every scenario is put in force.
  */
 
-const SHOPPING = ["product", "inventory", "price", "checkout", "shipping", "assistant", "order"];
 const runsFor = (s: Scenario) => (s.check.kind === "buy" || s.check.kind === "notice" ? 1 : s.criticality === "critical" ? 3 : 1);
 
 async function report<T>(body: unknown): Promise<{ ok: boolean; status: number; data: T | null }> {
@@ -236,7 +236,7 @@ const DRAFT_SCHEMA = {
   },
 };
 
-const DRAFT_SYSTEM = `You are the crew's test writer for Machine Shop, an online store run by an app agent on its policy book. Write scenarios that prove the store obeys its rules. Each scenario tests exactly one thing and names the policy keys (and ruling keys) it proves.
+const DRAFT_SYSTEM = `You are the crew's test writer for an online store run by an app agent on its policy book. Write scenarios that prove the store obeys its rules. Each scenario tests exactly one thing and names the policy keys (and ruling keys) it proves.
 
 Kinds (fill only the fields of your kind; set the others to empty values: "" for text, 0 for numbers, false, [] and "in"/"productPage" for enums):
 - buy: a product with productPrice (dollars) and productStock ("in", "out" or "unknown"); expectBuyable says whether the rules let it be bought. Use for stock, price and currency rules.
@@ -244,17 +244,19 @@ Kinds (fill only the fields of your kind; set the others to empty values: "" for
 - assistant: a shopper's message to the shop assistant (message). Tools it has: search_products, get_product, show_products, open_product. mustCall / mustNotCall list tool names; replyMust is one plain requirement on its reply ("" for none).
 - notice: a requirement (noticeMust) on one of the store's notices (noticeField): productPage, footer, orderTestMode (the order page in test mode), orderLiveMode.
 
-Rules: every steward ruling gets at least one critical scenario. Rate a scenario critical when it touches money, orders, stock or personal data. Use realistic home and workshop products. given/when/then: one short plain sentence each. source: "ruling" for a ruling, "example" when a policy's own example, else "crew".`;
+Rules: every steward ruling gets at least one critical scenario. Rate a scenario critical when it touches money, orders, stock or personal data. Use realistic products and requests for the site described at the end. given/when/then: one short plain sentence each. source: "ruling" for a ruling, "example" when a policy's own example, else "crew".`;
 
 async function draftScenarios(book: RuntimeBook, existing: Scenario[]): Promise<{ drafts: Omit<Scenario, "id" | "status">[]; costUsd: number }> {
-  const part = ground(book, SHOPPING);
+  const part = ground(book, groundingFor(book, "scenarios"));
   const covered = new Set(existing.filter((x) => x.status !== "retired").flatMap((x) => x.policies));
   const uncoveredRulings = part.rulings.filter((r) => !r.keys.some((k) => covered.has(k)));
   const enough = existing.filter((x) => x.status !== "retired").length >= 8;
   if (enough && !uncoveredRulings.length) return { drafts: [], costUsd: 0 };
   const want = enough ? Math.min(6, uncoveredRulings.length * 2) : 10;
   const r = await jsonCall<{ scenarios: Flat[] }>({
-    role: "proof", model: COMPILE_MODEL(), effort: "medium", maxTokens: 12000, schema: DRAFT_SCHEMA, system: DRAFT_SYSTEM,
+    role: "proof", model: COMPILE_MODEL(), effort: "medium", maxTokens: 12000, schema: DRAFT_SCHEMA, system: `${DRAFT_SYSTEM}
+
+The site: ${introduce(book)}.`,
     user: `The store's shopping rules:\n${bookText(part)}\n\nScenarios already in the suite (don't repeat them):\n${existing.map((x) => `- ${x.title} [${x.policies.join(", ")}]`).join("\n") || "(none)"}\n\n${uncoveredRulings.length ? `Rulings with no scenario yet:\n${uncoveredRulings.map((u) => `- ${u.keys.join(", ")}: ${u.ruling}`).join("\n")}\n\n` : ""}Write ${want} new scenarios.`,
   });
   const keys = new Set([...part.policies.map((p) => p.key), ...part.rulings.flatMap((x) => x.keys)]);

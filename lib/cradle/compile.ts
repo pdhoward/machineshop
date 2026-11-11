@@ -6,6 +6,8 @@ import { awaitingProof, bookText, getBook, getRuntime, type RuntimeBook } from "
 import { modelFault, type Fault } from "./fault";
 import { COMPILE_MODEL, jsonCall, type Call } from "./model";
 import { reportUsage } from "./usage";
+import { introduce } from "./site";
+import { stripeReady } from "../stripe";
 import { PROJECTION_SCHEMA, SAFE_PROJECTION, type Projection } from "./projection";
 
 /**
@@ -13,8 +15,8 @@ import { PROJECTION_SCHEMA, SAFE_PROJECTION, type Projection } from "./projectio
  * model reads the rules; the store then applies them without a model call).
  */
 
+// Which site this is comes from its registration (in the book) and its checkout mode from the environment: nothing here names a site.
 const SYSTEM = `You compile a store's policy book into the settings its software applies at runtime.
-The store is Machine Shop, a test store selling home and workshop products, with Stripe Checkout in test mode.
 
 Rules for reading the book:
 - The steward's rulings override the policies they name, and settle contradictions between them.
@@ -36,7 +38,7 @@ export function compileBook(book: RuntimeBook): Promise<Entry> {
   if (!entry) {
     entry = jsonCall<Projection>({
       role: "compile", model: COMPILE_MODEL(), effort: "medium", system: SYSTEM, schema: PROJECTION_SCHEMA as unknown as Record<string, unknown>, maxTokens: 8000,
-      user: `The policy book (version ${book.version}):\n\n${bookText(book)}`,
+      user: `The site: ${introduce(book)}. ${stripeReady() ? "Payments run through Stripe Checkout in test mode: no real charges." : "No payment provider is connected."}\n\nThe policy book (version ${book.version}):\n\n${bookText(book)}`,
     }).then(
       ({ data, ...call }) => {
         console.log(`[cradle] compiled book ${book.version} in ${call.ms}ms · $${call.costUsd.toFixed(4)}`);

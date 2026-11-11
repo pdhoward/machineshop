@@ -10,6 +10,7 @@ import { compiledRules, type Rules } from "./compile";
 import { FAST_MODEL, jsonStream } from "./model";
 import { scanObject } from "./partial-json";
 import { rankByRelevance } from "./relevance";
+import { groundingFor, introduce } from "./site";
 import { buyDecision, type BuyDecision, type Projection } from "./projection";
 import { buildSpec, type Spec } from "./ui";
 
@@ -58,8 +59,6 @@ const PLAN_SCHEMA = {
   },
 };
 
-/** The concepts a shopping request can touch (Route): the rest of the book (voice, data retention…) stays out of the context. */
-const SHOPPING = ["product", "inventory", "price", "checkout", "shipping", "assistant", "order"];
 
 export type Stage = { name: "route" | "ground" | "decide" | "execute" | "render"; ms: number; detail: string };
 export type Trace = {
@@ -101,7 +100,8 @@ type Found = { items: ProductCard[]; total: number; used: { q: string; category?
 export type Searched = { query: string; category: string; broadenedFrom?: string };
 const searchedOf = (f: Found): Searched => ({ query: f.used.q, category: f.used.category ?? "", ...(f.used.q !== f.from && { broadenedFrom: f.from }) });
 
-const SYSTEM = (departments: string) => `You are the app agent of Machine Shop, an online store of about 10,000 home and workshop products. A shopper typed a request into the store's search box. Decide what to look for in the catalog and how to present it, following the store's rules below.
+// Who the site is comes from its registration, and which rules apply from its industry pack (both in the book): nothing here names a site.
+const SYSTEM = (site: string, departments: string) => `You are the app agent of ${site}. A shopper typed a request into the store's search box. Decide what to look for in the catalog and how to present it, following the store's rules below.
 
 Return:
 - query: 1 to 4 short catalog keywords (nouns a product name or category would contain, e.g. "cordless drill"). Never put prices, adjectives like "cheap", or stock words in query.
@@ -125,7 +125,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   const stages: Stage[] = [];
   const mark = (name: Stage["name"], from: number, detail: string) => stages.push({ name, ms: Date.now() - from, detail });
 
-  // Route: the request is shopping; ground on the shopping concepts.
+  // Route: a search request; ground on the concepts the site's industry pack names for search.
   let t = Date.now();
   // Timed apart, so the Why drawer shows where the wait is: the rules (from the Accelerator, compiled) or the departments (the catalog).
   const from = t;
@@ -141,11 +141,12 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   mark(
     "route",
     t,
-    `shopping request · concepts: ${SHOPPING.join(", ")} · rules ${rulesMs} ms${compile ? ` (compiled them first: ${compile.model}, ${(compile.ms / 1000).toFixed(1)} s, $${compile.costUsd.toFixed(4)})` : ""} · departments ${departmentsMs} ms`,
+    `search request · grounding: ${book ? groundingFor(book, "search").join(", ") : "none"}${book?.pack?.grounding?.search ? " (from the pack)" : ""} · rules ${rulesMs} ms${compile ? ` (compiled them first: ${compile.model}, ${(compile.ms / 1000).toFixed(1)} s, $${compile.costUsd.toFixed(4)})` : ""} · departments ${departmentsMs} ms`,
   );
 
   t = Date.now();
-  const part = book ? ground(book, SHOPPING) : { policies: [], rulings: [] };
+  const concepts = book ? groundingFor(book, "search") : [];
+  const part = book ? ground(book, concepts) : { policies: [], rulings: [] };
   mark("ground", t, book ? `${part.policies.length} of ${book.policies.length} policies and ${part.rulings.length} rulings, book ${book.version}` : "no book: safe settings");
 
   const hideOut = (inStockOnly: boolean | undefined) => !!inStockOnly || projection.search.hideOutOfStockByDefault;
@@ -200,7 +201,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   let lastComplete = 0;
   const call = await jsonStream<Plan>({
     role: "search", model: FAST_MODEL(), effort: "low", think: false, maxTokens: 1200, schema: PLAN_SCHEMA,
-    system: `${SYSTEM(departments.map((d) => d.name).join(", "))}\n\nThe store's rules in force:\n${bookText(part) || "(none available: be cautious)"}`,
+    system: `${SYSTEM(introduce(book), departments.map((d) => d.name).join(", "))}\n\nThe store's rules in force:\n${bookText(part) || "(none available: be cautious)"}`,
     user: request.slice(0, 500),
     onText: (soFar) => {
       const scan = scanObject(soFar);

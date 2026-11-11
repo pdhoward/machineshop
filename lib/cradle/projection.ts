@@ -71,7 +71,7 @@ export const SAFE_PROJECTION: Projection = {
   summary: "The policy book isn't available, so the store runs on safe settings: browsing only.",
   buy: { enabled: false, requireInStock: true, unknownStockIsOut: true, requirePositivePrice: true, currency: "USD", reasonWhenOutOfStock: "Out of stock.", reasonWhenNoPrice: "No price yet.", policies: [] },
   search: { hideOutOfStockByDefault: false, policies: [] },
-  notices: { productPage: "Test store: no real charges.", footer: "Machine Shop is a test store.", orderTestMode: "Test mode: no charge was made and nothing ships.", orderLiveMode: "We ship your order to the address you gave at checkout.", policies: [] },
+  notices: { productPage: "Test store: no real charges.", footer: "This is a test store.", orderTestMode: "Test mode: no charge was made and nothing ships.", orderLiveMode: "We ship your order to the address you gave at checkout.", policies: [] },
   assistant: { rules: ["Help shoppers browse and choose. Ordering is unavailable right now."], mayDirectToBuyNow: false, policies: [] },
 };
 

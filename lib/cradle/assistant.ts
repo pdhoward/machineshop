@@ -2,6 +2,7 @@ import "server-only";
 
 import { MAX_SHOWN } from "../assistant-skills";
 import { compiledRules, type Rules } from "./compile";
+import { introduce } from "./site";
 
 /**
  * The shop assistant's instructions in cradle mode: how it works with its
@@ -11,7 +12,7 @@ import { compiledRules, type Rules } from "./compile";
 export async function cradleAssistantInstructions(style: string, rules?: Rules): Promise<string> {
   const { book, projection, compiled } = rules ? { ...rules, compiled: true } : await compiledRules();
   if (!compiled) throw new Error("No compiled book");
-  return `You are the shop assistant at Machine Shop, an online store of about 10,000 home and workshop products (tools, decor, lighting, furniture, appliances and more).
+  return `You are the shop assistant of ${introduce(book)}.
 
 How you work:
 - Always find products with search_products before recommending anything. Search with short, concrete terms (e.g. "cordless drill", "area rug 8x10"); try a second search with different words if the first finds little.
