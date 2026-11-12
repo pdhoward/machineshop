@@ -170,7 +170,13 @@ export function ground(book: RuntimeBook, concepts: string[]) {
 
 /** The book as compact text for a model: one line per policy, rulings last (they override). */
 export function bookText(part: { policies: RuntimePolicy[]; rulings: RuntimeBook["rulings"] }): string {
-  const lines = part.policies.map((p) => `${p.key} [${p.concept}${p.status === "confirmed" ? "" : `, ${p.status}`}] ${p.statement}${Object.keys(p.parameters ?? {}).length ? ` ${JSON.stringify(p.parameters)}` : ""}`);
+  // A policy a ruling names is marked where the model reads it, so it isn't quoted as if it still stood on its own.
+  const ruled = new Map<string, string>();
+  for (const r of part.rulings) for (const k of r.keys) if (!ruled.has(k)) ruled.set(k, r.id);
+  const lines = part.policies.map(
+    (p) =>
+      `${p.key} [${p.concept}${p.status === "confirmed" ? "" : `, ${p.status}`}]${ruled.has(p.key) ? ` (settled by a ruling below: where they differ, follow the ruling, not this)` : ""} ${p.statement}${Object.keys(p.parameters ?? {}).length ? ` ${JSON.stringify(p.parameters)}` : ""}`,
+  );
   const rulings = part.rulings.map((r) => `RULING on ${r.keys.join(", ")}: ${r.ruling}`);
   return [...lines, ...(rulings.length ? ["", "The steward's rulings (they settle contradictions and override the policies they name):", ...rulings] : [])].join("\n");
 }
