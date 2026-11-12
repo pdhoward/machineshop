@@ -63,8 +63,13 @@ export type Scenario = {
 export type CaseResult = { id: string; passed: boolean; runs: number; passes: number; detail: string; ms: number };
 export type Proof = { bookVersion: string; at: string; status: "requested" | "running" | "passed" | "failed" | "blocked"; results: CaseResult[]; passed: number; total: number; costUsd: number };
 
+/** A version's compiled settings, stored on the Accelerator by whichever server compiled it first (B11). */
+export type StoredProjection = { version: string; schema: string; projection: Record<string, unknown>; model: string; costUsd: number; at: string };
+
 export type RuntimeResponse = RuntimeBook & {
   mark: { title: string; tagline: string; by: string };
+  /** Compiled settings for the live version and the one in force (absent from Accelerators before B11). */
+  projections?: StoredProjection[];
   scenarios: Scenario[];
   inForce: { version: string; at: string; book: RuntimeBook } | null;
   proof: Proof | null;

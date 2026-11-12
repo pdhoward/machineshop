@@ -139,8 +139,8 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   const from = t;
   let rulesMs = 0;
   let departmentsMs = 0;
-  const [{ book, projection, compiled, compiledNow, call: compileCall }, departments] = await Promise.all([
-    (candidate ? Promise.resolve({ ...candidate, compiled: true, compiledNow: false, call: null }) : compiledRules()).then((r) => ((rulesMs = Date.now() - from), r)),
+  const [{ book, projection, compiled, compiledNow, call: compileCall, source }, departments] = await Promise.all([
+    (candidate ? Promise.resolve({ ...candidate, compiled: true, compiledNow: false, call: null, source: "compiled" as const }) : compiledRules()).then((r) => ((rulesMs = Date.now() - from), r)),
     listDepartments()
       .catch(() => [])
       .then((d) => ((departmentsMs = Date.now() - from), d)),
@@ -149,7 +149,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   mark(
     "route",
     t,
-    `search request · grounding: ${book ? groundingFor(book, "search").join(", ") : "none"}${book?.pack?.grounding?.search ? " (from the pack)" : ""} · rules ${rulesMs} ms${compile ? ` (compiled them first: ${compile.model}, ${(compile.ms / 1000).toFixed(1)} s, $${compile.costUsd.toFixed(4)})` : ""} · departments ${departmentsMs} ms`,
+    `search request · grounding: ${book ? groundingFor(book, "search").join(", ") : "none"}${book?.pack?.grounding?.search ? " (from the pack)" : ""} · rules ${rulesMs} ms${compile ? ` (compiled them first: ${compile.model}, ${(compile.ms / 1000).toFixed(1)} s, $${compile.costUsd.toFixed(4)})` : source === "stored" ? " (settings compiled once and kept on the Accelerator)" : ""} · departments ${departmentsMs} ms`,
   );
 
   t = Date.now();

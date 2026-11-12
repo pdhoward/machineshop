@@ -44,7 +44,7 @@ export async function proveLatest() {
   console.log(`[cradle] proving book ${version}`);
 
   const book = liveBook(runtime);
-  const { projection, call, fault } = await compileBook(book);
+  const { projection, call, fault } = await compileBook(book, runtime.projections);
   cost += call?.costUsd ?? 0;
   // The app couldn't reach its model: nothing was judged, so no verdict (B18). The Accelerator retries later.
   if (fault) return void (await blocked(version, faultLabel(fault)));
