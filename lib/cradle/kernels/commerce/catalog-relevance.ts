@@ -1,9 +1,15 @@
 /**
- * Relevance ranking for any catalog (B9): platform code, not the store's. The
- * store's search kernel only has to return candidates where every keyword
- * appears somewhere (the simplest search any web app already has); this
- * ranks them so the thing the shopper asked for comes before the parts and
- * accessories that merely mention it.
+ * The Commerce pack's catalog-relevance kernel (gen3-cradle.md §1.6, B9).
+ * Written once for the pack and run on every commerce site; no site writes
+ * its own. It does the exact part of search: which candidates are the product
+ * the shopper named, and their order by relevance, price or rating. The model
+ * does the interpreting part: reading the shopper's words into keywords, an
+ * order and a count.
+ *
+ * The store's catalog connection only has to return candidates where every
+ * keyword appears somewhere (the simplest search any web app already has);
+ * this ranks them so the thing the shopper asked for comes before the parts
+ * and accessories that merely mention it.
  *
  * It reads only a title and a category trail, which every catalog has, and
  * uses how product titles are written: the subject comes first, and what an

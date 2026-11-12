@@ -9,7 +9,7 @@ import { bookText, ground } from "./book";
 import { compiledRules, type Rules } from "./compile";
 import { FAST_MODEL, jsonStream } from "./model";
 import { scanObject } from "./partial-json";
-import { selectProducts } from "./relevance";
+import { productSelector } from "./kernels";
 import { groundingFor, introduce } from "./site";
 import { buyDecision, type BuyDecision, type Projection } from "./projection";
 import { buildSpec, type Spec } from "./ui";
@@ -157,6 +157,8 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   const part = book ? ground(book, concepts) : { policies: [], rulings: [] };
   mark("ground", t, book ? `${part.policies.length} of ${book.policies.length} policies and ${part.rulings.length} rulings, book ${book.version}` : "no book: safe settings");
 
+  // The exact half of search (which candidates are the product, in what order) is the site's pack kernel; the model only read the words.
+  const selector = productSelector(book);
   const hideOut = (inStockOnly: boolean | undefined) => !!inStockOnly || projection.search.hideOutOfStockByDefault;
   const sizeOf = (layout: Plan["layout"]) => (layout === "single" ? 1 : layout === "compare" ? 4 : 12);
   // The shopper's own number when they gave one ("compare two"), within the layout's room.
@@ -181,7 +183,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
     const runs = attempts.map((a) =>
       search({ q: a.q, category: a.category, ...priceOf(f), sort }, 1, POOL).then((r) => ({
         total: r.total,
-        items: selectProducts(r.items, a.q, (p) => ({ title: p.name, trail: p.trail, price: p.price, rating: p.rating }), f.sort ?? "relevance", countOf(f)),
+        items: selector.select(r.items, a.q, (p) => ({ title: p.name, trail: p.trail, price: p.price, rating: p.rating }), f.sort ?? "relevance", countOf(f)),
       })),
     );
     runs.forEach((r) => r.catch(() => {})); // those after a hit are never awaited
@@ -252,7 +254,7 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
   mark(
     "execute",
     t,
-    `catalog kernel: ${total} matches for "${used.q}"${used.category ? ` in ${used.category}` : ""}${hideOut(plan.inStockOnly) ? ", in stock only" : ""}${found.broadened ? " (broadened after a miss)" : ""} · buy rule on ${items.length}${overlap}`,
+    `catalog kernel: ${total} matches for "${used.q}"${used.category ? ` in ${used.category}` : ""}${hideOut(plan.inStockOnly) ? ", in stock only" : ""}${found.broadened ? " (broadened after a miss)" : ""} · ${selector.kernel ? `kernel ${selector.kernel} (${book?.pack?.label ?? book?.pack?.id} pack)` : "no pack kernel: catalog order"} · buy rule on ${items.length}${overlap}`,
   );
 
   const known = new Map([...part.policies.map((p) => [p.key, p.statement] as const), ...part.rulings.flatMap((r) => r.keys.map((k) => [k, r.ruling] as const))]);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { rankByRelevance, relevance, selectProducts } from "./relevance";
+import { rankByRelevance, relevance, selectProducts } from "./catalog-relevance";
 
 // Real titles from a home-and-workshop catalog: what a keyword search returns for "lawn mower", in the kernel's order.
 const MOWER_HITS = [

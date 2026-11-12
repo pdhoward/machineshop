@@ -34,6 +34,8 @@ export type RuntimeBook = {
     summary?: string;
     concepts?: { key: string; label: string }[];
     grounding?: Partial<Record<"search" | "assistant" | "scenarios", string[]>>;
+    /** The pack's kernels: the app runs a kernel only when its pack offers it. */
+    kernels?: { key: string; label: string; status: "available" | "planned" }[];
   } | null;
   version: string;
   at: string;
