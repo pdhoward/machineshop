@@ -57,7 +57,10 @@ const REGISTRY: { [K in ComponentType]: Render<K> } = {
         <span key={f} className="rounded-full border border-line bg-panel px-2.5 py-0.5 text-fog">{f}</span>
       ))}
       {props.total != null && (
-        <span className="text-mist">· {props.total.toLocaleString()} {props.total === 1 ? "match" : "matches"}</span>
+        <span className="text-mist">
+          · {props.shown != null && `${props.shown} of `}
+          {props.total.toLocaleString()} {props.total === 1 ? "match" : "matches"}
+        </span>
       )}
       {props.more && props.classicHref && (
         <Link href={props.classicHref} className="text-mist underline-offset-2 hover:text-ink hover:underline">

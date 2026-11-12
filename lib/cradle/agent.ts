@@ -9,7 +9,7 @@ import { bookText, ground } from "./book";
 import { compiledRules, type Rules } from "./compile";
 import { FAST_MODEL, jsonStream } from "./model";
 import { scanObject } from "./partial-json";
-import { rankByRelevance } from "./relevance";
+import { selectProducts } from "./relevance";
 import { groundingFor, introduce } from "./site";
 import { buyDecision, type BuyDecision, type Projection } from "./projection";
 import { buildSpec, type Spec } from "./ui";
@@ -30,6 +30,10 @@ export type Plan = {
   maxPrice: number;
   inStockOnly: boolean;
   layout: "grid" | "compare" | "single";
+  /** The order the shopper asked for ("the cheapest", "best rated"); relevance otherwise. */
+  sort: "relevance" | "price_low" | "price_high" | "rating";
+  /** How many products the shopper asked for ("two", "a few"); 0 when they didn't say. */
+  count: number;
   headline: string;
   explanation: string;
   rulesApplied: string[];
@@ -42,7 +46,7 @@ const PLAN_SCHEMA = {
   type: "object",
   additionalProperties: false,
   // The choices the search needs come first and the words after, so the search can start while the model is still writing (B21).
-  required: ["intent", "layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "alternatives", "headline", "explanation", "followUp", "rulesApplied"],
+  required: ["intent", "layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "sort", "count", "alternatives", "headline", "explanation", "followUp", "rulesApplied"],
   properties: {
     intent: { type: "string", enum: ["find", "compare", "one_product", "buy", "other"] },
     layout: { type: "string", enum: ["grid", "compare", "single"] },
@@ -51,6 +55,8 @@ const PLAN_SCHEMA = {
     minPrice: { type: "number" },
     maxPrice: { type: "number" },
     inStockOnly: { type: "boolean" },
+    sort: { type: "string", enum: ["relevance", "price_low", "price_high", "rating"] },
+    count: { type: "integer" },
     alternatives: { type: "array", items: { type: "string" } },
     headline: { type: "string" },
     explanation: { type: "string" },
@@ -93,7 +99,7 @@ export type AnswerEvent =
 /** The fields the catalog search needs: once the model has written these, the search starts. */
 /** How many candidates the kernel returns for ranking. */
 const POOL = 40;
-const SEARCH_FIELDS = ["layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "alternatives"] as const;
+const SEARCH_FIELDS = ["layout", "query", "category", "minPrice", "maxPrice", "inStockOnly", "sort", "count", "alternatives"] as const;
 type Search = Pick<Plan, (typeof SEARCH_FIELDS)[number]>;
 type Found = { items: ProductCard[]; total: number; used: { q: string; category?: string }; broadened: boolean; from: string };
 /** What the kernel searched; `broadenedFrom` names the shopper's keywords when they found nothing and others were used. */
@@ -109,6 +115,8 @@ Return:
 - minPrice / maxPrice: dollars, 0 when not stated.
 - inStockOnly: true when the shopper asks for things available now, or when the rules say out-of-stock products must not be offered.
 - layout: "compare" when the shopper wants to compare or choose between options, "single" when they name one specific product, else "grid".
+- sort: "price_low" when the shopper wants the cheapest or least expensive, "price_high" for the most expensive or premium, "rating" for the best rated, else "relevance".
+- count: how many products the shopper asked for ("two" is 2, "a couple" is 2, "a few" is 3), else 0.
 - headline: a short title for the results. explanation: one or two sentences telling the shopper what you looked for and which store rules shaped the results, in plain words (no policy keys).
 - rulesApplied: the keys of the policies or rulings that shaped this decision (only keys that appear below).
 - followUp: one short request the shopper could send next, written exactly as the shopper would type it into the search box, complete on its own (e.g. "battery push mowers under $300"). Never a question to the shopper, never "you".
@@ -151,6 +159,8 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
 
   const hideOut = (inStockOnly: boolean | undefined) => !!inStockOnly || projection.search.hideOutOfStockByDefault;
   const sizeOf = (layout: Plan["layout"]) => (layout === "single" ? 1 : layout === "compare" ? 4 : 12);
+  // The shopper's own number when they gave one ("compare two"), within the layout's room.
+  const countOf = (f: Search) => (f.count > 0 ? Math.min(f.count, sizeOf(f.layout) === 1 ? 1 : 12) : sizeOf(f.layout));
   const ready = stripeReady();
   const decide = (items: ProductCard[]): Item[] => items.map((p) => ({ ...p, buy: buyDecision(p, projection, ready) }));
   const priceOf = (f: Search) => ({ minPrice: f.minPrice > 0 ? f.minPrice : undefined, maxPrice: f.maxPrice > 0 ? f.maxPrice : undefined, inStockOnly: hideOut(f.inStockOnly) });
@@ -166,10 +176,12 @@ export async function ask(request: string, candidate?: Rules, emit?: (e: AnswerE
     ];
     // The kernel returns candidates where every word appears; the platform ranks a pool of them so the
     // products themselves come before the parts that mention them (B9), then keeps the layout's size.
+    // An asked-for order goes to the kernel too, so the pool holds the cheapest (or best rated) candidates, not just the first ones.
+    const sort = f.sort === "price_low" ? "price_asc" : f.sort === "price_high" ? "price_desc" : f.sort === "rating" ? "rating" : undefined;
     const runs = attempts.map((a) =>
-      search({ q: a.q, category: a.category, ...priceOf(f) }, 1, POOL).then((r) => ({
+      search({ q: a.q, category: a.category, ...priceOf(f), sort }, 1, POOL).then((r) => ({
         total: r.total,
-        items: rankByRelevance(r.items, a.q, (p) => ({ title: p.name, trail: p.trail })).slice(0, sizeOf(f.layout)),
+        items: selectProducts(r.items, a.q, (p) => ({ title: p.name, trail: p.trail, price: p.price, rating: p.rating }), f.sort ?? "relevance", countOf(f)),
       })),
     );
     runs.forEach((r) => r.catch(() => {})); // those after a hit are never awaited

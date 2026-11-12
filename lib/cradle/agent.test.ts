@@ -20,7 +20,7 @@ vi.mock("./model", () => ({ FAST_MODEL: () => "claude-haiku-5-5", jsonStream: mo
 const card = (id: string): ProductCard => ({ id, name: id, image: null, blurb: "", brand: null, price: 50, currency: "USD", inStock: true, stock: "in", category: "Tools", rating: null, reviews: null });
 
 const PLAN: Plan = {
-  intent: "find", layout: "grid", query: "drill", category: "Tools", minPrice: 0, maxPrice: 100, inStockOnly: true,
+  intent: "find", layout: "grid", query: "drill", category: "Tools", minPrice: 0, maxPrice: 100, inStockOnly: true, sort: "relevance", count: 0,
   headline: "Drills under $100", explanation: "Only what you can buy today.", followUp: "drill bits", rulesApplied: [], alternatives: ["driver"],
 };
 

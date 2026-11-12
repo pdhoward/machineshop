@@ -10,7 +10,7 @@ const item = (id: string, price: number, ok = true): Item => ({
 });
 
 const PLAN: Plan = {
-  intent: "find", layout: "grid", query: "cordless drill", category: "Tools", minPrice: 0, maxPrice: 150, inStockOnly: true,
+  intent: "find", layout: "grid", query: "cordless drill", category: "Tools", minPrice: 0, maxPrice: 150, inStockOnly: true, sort: "relevance", count: 0,
   headline: "Cordless drills under $150", explanation: "In stock only, by the store's rules.", followUp: "drill bits", rulesApplied: [], alternatives: [],
 };
 

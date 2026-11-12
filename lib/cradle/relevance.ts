@@ -74,3 +74,46 @@ export function rankByRelevance<T>(items: T[], query: string, view: (item: T) =>
     .sort((a, b) => b.score - a.score || a.i - b.i)
     .map((x) => x.item);
 }
+
+/** Whether every keyword names the product itself (in its title before any "for"), not only what it fits or its category. */
+export function namesIt(item: Rankable, query: string): boolean {
+  const terms = [...new Set(words(query))];
+  if (!terms.length) return true;
+  const title = item.title.toLowerCase();
+  const cut = title.search(QUALIFIER);
+  const subject = cut > 0 ? title.slice(0, cut) : title;
+  const subjectWords = words(subject);
+  return terms.every((t) => hasWord(subjectWords, t) || hasPart(subject, t));
+}
+
+export type Order = "relevance" | "price_low" | "price_high" | "rating";
+
+/**
+ * The products to show, from the kernel's candidates: by relevance; or, when
+ * the shopper asked for an order ("the cheapest", "best rated"), only the
+ * products the keywords name, in that order, so the cheapest lawn mower is a
+ * mower and not a blade that fits one. Falls back to every candidate only
+ * when the keywords name none of them. `count` is how many to keep.
+ */
+export function selectProducts<T>(
+  items: T[],
+  query: string,
+  view: (item: T) => Rankable & { price: number | null; rating: number | null },
+  order: Order,
+  count: number,
+): T[] {
+  const ranked = rankByRelevance(items, query, view);
+  if (order === "relevance") return ranked.slice(0, count);
+  const named = ranked.filter((x) => namesIt(view(x), query));
+  // Fewer than asked is honest; padding with parts that merely mention the keywords is not.
+  const pool = named.length ? named : ranked;
+  const key = (x: T) => {
+    const v = view(x);
+    return order === "rating" ? -(v.rating ?? -1) : order === "price_high" ? -(v.price ?? -Infinity) : (v.price ?? Infinity);
+  };
+  return pool
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => key(a.x) - key(b.x) || a.i - b.i)
+    .map((e) => e.x)
+    .slice(0, count);
+}

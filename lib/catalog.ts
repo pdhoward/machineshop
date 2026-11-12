@@ -33,7 +33,10 @@ const CARD_FIELDS = {
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export type Query = { q?: string; category?: string; maxPrice?: number; minPrice?: number; inStockOnly?: boolean };
+export type Query = { q?: string; category?: string; maxPrice?: number; minPrice?: number; inStockOnly?: boolean; sort?: Sort };
+/** The orders every catalog offers; unset keeps the catalog's own order. */
+export type Sort = "price_asc" | "price_desc" | "rating";
+const SORTS = { price_asc: { price: 1, _id: 1 }, price_desc: { price: -1, _id: 1 }, rating: { avg_rating: -1, _id: 1 } } as const;
 
 function filterFor({ q, category, maxPrice, minPrice, inStockOnly }: Query): Filter<Doc> {
   const and: Filter<Doc>[] = [];
@@ -55,7 +58,7 @@ export async function search(query: Query, page = 1, size = PAGE_SIZE): Promise<
   const col = await products();
   const filter = filterFor(query);
   const [docs, total] = await Promise.all([
-    col.find(filter, { projection: CARD_FIELDS }).sort({ _id: 1 }).skip((page - 1) * size).limit(size).toArray(),
+    col.find(filter, { projection: CARD_FIELDS }).sort(query.sort ? SORTS[query.sort] : { _id: 1 }).skip((page - 1) * size).limit(size).toArray(),
     col.countDocuments(filter),
   ]);
   return { items: docs.map(toCard), total };

@@ -43,6 +43,8 @@ export const CATALOG = {
     props: {
       chips: { type: "string[]" },
       total: { type: "number", optional: true },
+      /** How many of the total are shown, when fewer. */
+      shown: { type: "number", optional: true },
       more: { type: "boolean", optional: true },
       classicHref: { type: "string", optional: true },
       /** Said plainly when the store substituted: other keywords, or one product where a comparison was asked for. */
@@ -72,7 +74,7 @@ export type ComponentType = keyof typeof CATALOG;
 export type PropsOf = {
   Answer: Record<string, never>;
   Heading: { request: string; headline?: string; explanation?: string };
-  Filters: { chips: string[]; total?: number; more?: boolean; classicHref?: string; note?: string };
+  Filters: { chips: string[]; total?: number; shown?: number; more?: boolean; classicHref?: string; note?: string };
   Products: { layout: "grid" | "single"; ids: string[] };
   Compare: { ids: string[] };
   Skeleton: { layout: Layout; count: number };
@@ -133,6 +135,7 @@ export function buildSpec(v: View): Spec {
         chips,
         ...(v.total != null && { total: v.total }),
         ...(v.items && v.total != null && { more: v.total > v.items.length }),
+        ...(v.items?.length && v.total != null && v.total > v.items.length && { shown: v.items.length }),
         classicHref: `/?${classic}`,
         ...(notes.length && { note: notes.join(" ") }),
       }),
@@ -207,7 +210,7 @@ export function specText(spec: Spec, data: SpecData): string {
     },
     Filters: (p) => {
       if (p.note) lines.push(p.note);
-      if (p.total != null) lines.push(`${p.total.toLocaleString("en-US")} ${p.total === 1 ? "match" : "matches"}.`);
+      if (p.total != null) lines.push(`${p.shown != null ? `${p.shown} of ` : ""}${p.total.toLocaleString("en-US")} ${p.total === 1 ? "match" : "matches"}.`);
     },
     Products: (p) => p.ids.forEach((id, i) => data.products[id] && lines.push(product(data.products[id], i + 1))),
     Compare: (p) => p.ids.forEach((id, i) => data.products[id] && lines.push(product(data.products[id], i + 1))),
