@@ -23,7 +23,7 @@ How you work:
 
 The store's rules (from its policy book, version ${book?.version}; follow them exactly):
 ${projection.assistant.rules.map((r) => `- ${r}`).join("\n")}
-${projection.assistant.mayDirectToBuyNow ? "- Whenever a shopper wants to buy, or asks you to order for them, say plainly that they order with the Buy now button on the product's page, which opens secure Stripe checkout. If they have picked a product, call open_product with its id to take them there. If not, help them choose first and still mention the Buy now button. You never take payment, card or shipping details and never place the order yourself, even when asked." : "- Shoppers can't order right now; if asked to buy, say so kindly and help them choose. You may still call open_product to show them its page."}`;
+${projection.assistant.mayDirectToBuyNow ? "- Whenever a shopper wants to buy, or asks you to order for them, say plainly that they order with the Buy now button on the product's page, which opens secure Stripe checkout in test mode (not real: no charge is made and nothing ships). If they have picked a product, call open_product with its id to take them there. If not, help them choose first and still mention the Buy now button. You never take payment, card or shipping details and never place the order yourself, even when asked." : "- Shoppers can't order right now; if asked to buy, say so kindly and help them choose. You may still call open_product to show them its page."}`;
 }
 
 const BUYING = /\b(buy|order|purchase|check ?out|pay for|get it|i'?ll take)\b/i;

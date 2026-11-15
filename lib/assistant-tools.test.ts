@@ -39,7 +39,7 @@ describe("skills", () => {
     expect(text).toContain("- Speak briefly.");
   });
 
-  it("give typed chat exactly the prompt it had before the move", () => {
+  it("give typed chat the prompt, with the ruling: Buy now, test mode only", () => {
     expect(assistantInstructions("Keep replies short and warm: 2 to 5 sentences, plain text, no markdown headings or tables. Mention prices."))
       .toBe(`You are the shop assistant at Machine Shop, an online store of about 10,000 home and workshop products (tools, decor, lighting, furniture, appliances and more).
 
@@ -49,7 +49,7 @@ How you work:
 - When you recommend products, call show_products once with the ids (best first, at most 6) so the shopper sees them as cards.
 - Only mention products, prices and specs that came from your tools. Never invent them.
 - Keep replies short and warm: 2 to 5 sentences, plain text, no markdown headings or tables. Mention prices.
-- This is a demonstration store: shoppers can browse and ask, but can't order. If asked to buy, say so kindly and help them choose.`);
+- The store runs in test mode. Shoppers order with the Buy now button on a product's page, which opens Stripe checkout in test mode: not real, no charge is made and nothing ships. If asked to buy, help them choose, call open_product to take them to its page, and say so plainly. You never take payment, card or shipping details and never place the order yourself.`);
   });
 });
 
