@@ -15,7 +15,7 @@
     "diagnose:voice:openai": "dotenv -e ../../envmachine/machineshop/development/.env.development.local -- node scripts/diagnose-openai-key.mjs"
   },
   "dependencies": {
-    "@accelerator/voice-chat": "file:vendor/accelerator-voice-chat-0.1.1.tgz",
+    "@accelerator/voice-chat": "file:vendor/accelerator-voice-chat-0.1.2.tgz",
     "@anthropic-ai/sdk": "^0.129.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.41.0",

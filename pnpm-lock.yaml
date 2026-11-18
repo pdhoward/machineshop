@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@accelerator/voice-chat':
-        specifier: file:vendor/accelerator-voice-chat-0.1.1.tgz
-        version: file:vendor/accelerator-voice-chat-0.1.1.tgz(@anthropic-ai/sdk@0.129.0)(mongodb@7.7.0)(react@19.2.8)
+        specifier: file:vendor/accelerator-voice-chat-0.1.2.tgz
+        version: file:vendor/accelerator-voice-chat-0.1.2.tgz(@anthropic-ai/sdk@0.129.0)(mongodb@7.7.0)(react@19.2.8)
       '@anthropic-ai/sdk':
         specifier: ^0.129.0
         version: 0.129.0
@@ -63,9 +63,9 @@ importers:
 
 packages:
 
-  '@accelerator/voice-chat@file:vendor/accelerator-voice-chat-0.1.1.tgz':
-    resolution: {integrity: sha512-fAkfXCS1Jb1p8eCHr5MABE/a0yz0BB7fRfFG5DI3b2/FAgYePpY2Vvwl4Qb+ZQOZuIVDQuMm5AmUBpIYFa7NLw==, tarball: file:vendor/accelerator-voice-chat-0.1.1.tgz}
-    version: 0.1.1
+  '@accelerator/voice-chat@file:vendor/accelerator-voice-chat-0.1.2.tgz':
+    resolution: {integrity: sha512-8tm3wvhZJbbZbHO+Y/e3XpQ2+IwRfzdIBr9+51l7ZWaeT8jpWRiDTxmmTLGMGJDI2JC8U5PLPBVOEsO/LxSNsQ==, tarball: file:vendor/accelerator-voice-chat-0.1.2.tgz}
+    version: 0.1.2
     peerDependencies:
       '@anthropic-ai/sdk': '>=0.60.0'
       mongodb: '>=6.0.0'
@@ -1314,7 +1314,7 @@ packages:
 
 snapshots:
 
-  '@accelerator/voice-chat@file:vendor/accelerator-voice-chat-0.1.1.tgz(@anthropic-ai/sdk@0.129.0)(mongodb@7.7.0)(react@19.2.8)':
+  '@accelerator/voice-chat@file:vendor/accelerator-voice-chat-0.1.2.tgz(@anthropic-ai/sdk@0.129.0)(mongodb@7.7.0)(react@19.2.8)':
     optionalDependencies:
       '@anthropic-ai/sdk': 0.129.0
       mongodb: 7.7.0
