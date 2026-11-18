@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
+import { voiceConfigured } from "@accelerator/voice-chat";
+
 import { OwnerTranscripts } from "@/components/owner-transcripts";
-import { voiceConfigured } from "@/lib/voice";
 
 // Private: never indexed or followed by search engines.
 export const metadata: Metadata = {
@@ -17,7 +18,7 @@ export default function OwnerTranscriptsPage() {
     <main className="mx-auto max-w-3xl px-4 pt-10 sm:px-6">
       <h1 className="text-2xl font-semibold tracking-tight">Saved calls</h1>
       <p className="mt-1 text-[14px] text-fog">Talk mode transcripts from the last 30 days. They delete themselves after that.</p>
-      {voiceConfigured() ? <OwnerTranscripts /> : <p className="mt-8 text-fog">Talk isn&apos;t set up yet, so there are no saved calls.</p>}
+      {voiceConfigured(process.env) ? <OwnerTranscripts /> : <p className="mt-8 text-fog">Talk isn&apos;t set up yet, so there are no saved calls.</p>}
     </main>
   );
 }

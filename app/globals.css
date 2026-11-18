@@ -1,4 +1,25 @@
 @import "tailwindcss";
+@import "@accelerator/voice-chat/styles.css";
+
+/* The shop assistant (@accelerator/voice-chat) in Machine Shop's colours, light and dark alike. */
+.vc,
+.vc-dialog {
+  --vc-bg: var(--bg);
+  --vc-panel: var(--panel);
+  --vc-panel-2: var(--panel-2);
+  --vc-line: var(--line);
+  --vc-ink: var(--ink);
+  --vc-fog: var(--fog);
+  --vc-mist: var(--mist);
+  --vc-accent: var(--accent);
+  --vc-accent-2: var(--accent-2);
+  --vc-on-accent: var(--on-accent);
+  --vc-bad: var(--bad);
+  --vc-call: var(--call);
+  --vc-call-2: var(--call-2);
+  --vc-hangup: var(--hangup);
+  --vc-hangup-2: var(--hangup-2);
+}
 
 /* Machine Shop: workshop paper, ink, and one safety-orange accent. */
 :root {

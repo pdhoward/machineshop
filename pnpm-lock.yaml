@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@accelerator/voice-chat':
+        specifier: file:vendor/accelerator-voice-chat-0.1.0.tgz
+        version: file:vendor/accelerator-voice-chat-0.1.0.tgz(@anthropic-ai/sdk@0.129.0)(mongodb@7.7.0)(react@19.2.8)
       '@anthropic-ai/sdk':
         specifier: ^0.129.0
         version: 0.129.0
@@ -59,6 +62,21 @@ importers:
         version: 3.2.7(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)
 
 packages:
+
+  '@accelerator/voice-chat@file:vendor/accelerator-voice-chat-0.1.0.tgz':
+    resolution: {integrity: sha512-CWekByokTtLyW/6Qf2/EAHqfTEUBiZlYvvdW9hVU7VME8KFMiWBqdNVQlcDhunLaNs7fCIFUnEvid04zgN5oyw==, tarball: file:vendor/accelerator-voice-chat-0.1.0.tgz}
+    version: 0.1.0
+    peerDependencies:
+      '@anthropic-ai/sdk': '>=0.60.0'
+      mongodb: '>=6.0.0'
+      react: '>=19.0.0'
+    peerDependenciesMeta:
+      '@anthropic-ai/sdk':
+        optional: true
+      mongodb:
+        optional: true
+      react:
+        optional: true
 
   '@alloc/quick-lru@5.3.0':
     resolution: {integrity: sha512-U4+70Pc5ZS9osnCBCE5Jha/ciHM+Yp+CNMNC/7HvYbNRk1Ldd+f7qO65W5qfhu/TCv+/ozljlXXe9Nj8419DMA==}
@@ -1295,6 +1313,12 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@accelerator/voice-chat@file:vendor/accelerator-voice-chat-0.1.0.tgz(@anthropic-ai/sdk@0.129.0)(mongodb@7.7.0)(react@19.2.8)':
+    optionalDependencies:
+      '@anthropic-ai/sdk': 0.129.0
+      mongodb: 7.7.0
+      react: 19.2.8
 
   '@alloc/quick-lru@5.3.0': {}
 

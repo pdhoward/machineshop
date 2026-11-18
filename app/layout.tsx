@@ -5,10 +5,9 @@ import "./globals.css";
 import { Assistant } from "@/components/assistant";
 import { ModeBar } from "@/components/cradle/mode-bar";
 import { Header } from "@/components/header";
+import { assistant } from "@/lib/assistant";
 import { cradleConfigured } from "@/lib/cradle/book";
 import { compiledRules } from "@/lib/cradle/compile";
-import { catalogConfigured } from "@/lib/catalog";
-import { voiceConfigured } from "@/lib/voice";
 
 /** Cradle mode proves new rules after a response is sent (the conformance gate); give it time. */
 export const maxDuration = 300;
@@ -31,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="mx-auto mt-20 max-w-7xl border-t border-line px-4 py-8 text-xs text-mist sm:px-6">
           <FooterNotice />
         </footer>
-        <Assistant enabled={!!process.env.ANTHROPIC_API_KEY} voice={voiceConfigured() && catalogConfigured()} />
+        <Assistant enabled={!!process.env.ANTHROPIC_API_KEY} voice={assistant.voiceReady()} />
       </body>
     </html>
   );
